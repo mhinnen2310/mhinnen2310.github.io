@@ -1,0 +1,797 @@
+// Demi Fietsen — domain model
+//
+// Core invariant: a Bike (UNIQUE_BIKE) is ONE physical bicycle. It is never
+// modelled with variants and never has a quantity. Accessories are separate
+// Product (STOCK_ITEM) records with conventional stock behaviour.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  ADMIN
+  STAFF
+  CUSTOMER
+}
+
+enum BikeStatus {
+  INTAKE
+  WORKSHOP
+  READY
+  AVAILABLE
+  RESERVED
+  SOLD
+  ARCHIVED
+}
+
+enum LineKind {
+  UNIQUE_BIKE
+  STOCK_ITEM
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum FulfilmentStatus {
+  UNFULFILLED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  FULFILLED
+  CANCELLED
+}
+
+enum AppointmentStatus {
+  NEW
+  CONTACTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ServiceRequestType {
+  RETURN
+  WARRANTY
+  SERVICE
+  DAMAGE
+  OTHER
+}
+
+enum ServiceRequestStatus {
+  NEW
+  IN_PROGRESS
+  AWAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+enum ContactStatus {
+  NEW
+  CONTACTED
+  RESOLVED
+}
+
+enum ReservationSource {
+  CHECKOUT
+  APPOINTMENT
+  MANUAL
+}
+
+enum ReservationStatus {
+  ACTIVE
+  EXPIRED
+  RELEASED
+  CONVERTED_TO_ORDER
+  CANCELLED
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  DUPLICATE_IGNORED
+}
+
+enum InvoiceStatus {
+  ISSUED
+  VOID
+  CREDIT_NOTE
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+// ---------------------------------------------------------------------------
+// Accounts & security
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  name          String?
+  role          Role      @default(CUSTOMER)
+  emailVerified DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  addresses   UserAddress[]
+  orders      Order[]
+  authTokens  AuthToken[]
+  auditLogs   AuditLog[]
+
+  @@index([role])
+}
+
+model UserAddress {
+  id        String  @id @default(cuid())
+  userId    String
+  label     String
+  line1     String
+  line2     String?
+  city      String
+  postcode  String
+  country   String  @default("NL")
+  isDefault Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuthToken {
+  id         String    @id @default(cuid())
+  userId     String
+  purpose    String // "email-verify" | "password-reset"
+  tokenHash  String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+}
+
+model RateLimitEntry {
+  key         String   @id
+  hits        Int      @default(1)
+  windowStart DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Site configuration (single row)
+// ---------------------------------------------------------------------------
+
+model SiteSettings {
+  id                Int      @id @default(1)
+  companyName       String   @default("Demi Fietsen")
+  logoKey           String?
+  faviconKey        String?
+  email             String?
+  phone             String?
+  addressLine       String?
+  postcode          String?
+  city              String?
+  kvkNumber         String?
+  vatId             String?
+  iban              String?
+  openingHours      Json? // [{days: "ma-do", hours: "09:00-17:00"}]
+  socialLinks       Json? // [{label, url}]
+  announcement      Json? // {enabled, text, link}
+  homepage          Json? // {heroTitle, heroSubtitle, intro, ...}
+  aboutText         String?
+  delivery          Json? // configurable delivery methods
+  warranty          Json? // warranty defaults (scopes, months, wording)
+  marketplace       Json? // Marktplaats assistant templates
+  seo               Json? // {siteName, description, ogImageKey}
+  analytics         Json? // {enabled}
+  tax               Json? // {bikeRate, accessoryRate, basis, requiresReview}
+  newsletterEnabled Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
+
+model LegalPage {
+  slug                String   @id // privacy | algemene-voorwaarden | retourbeleid | cookiebeleid
+  title               String
+  body                String
+  requiresLegalReview Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+model UrlRedirect {
+  id        String   @id @default(cuid())
+  oldPath   String   @unique // e.g. /products/sparta-c2-2455 (Shopify)
+  newPath   String // e.g. /fietsen/sparta-c2-2455
+  active    Boolean  @default(true)
+  source    String   @default("shopify")
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// UNIQUE_BIKE — one physical bicycle
+// ---------------------------------------------------------------------------
+
+model Bike {
+  id            String  @id @default(cuid())
+  inventoryCode String  @unique // "2455", "T5", ...
+  slug          String  @unique
+  title         String
+  brand         String
+  model         String
+
+  // Bicycle identity / specification (all optional — old stock may lack data)
+  bikeType        String? // stapper, trekking, mountain, cargo, city, ...
+  isElectric      Boolean @default(true)
+  frameStyle      String? // doorligger, diamond, ...
+  genderStyle     String? // heren, damen, unisex
+  colour          String?
+  frameSizeCm     Int?
+  wheelSizeCm     Int?
+  gears           Int?
+  assistanceLevels Int?
+  brakeInfo       String?
+  drivetrainInfo  String?
+
+  // Electric system
+  motorManufacturer String?
+  motorModel        String?
+  motorPosition     String? // middenbuis, vóórnaaf, achternaaf
+  motorDescription  String?
+  nominalVoltage    Int?
+  walkAssist        Boolean?
+  electricalNotes   String?
+
+  // Battery (estimates are explicitly estimates, not guarantees)
+  batteryType           String?
+  batteryVoltage        Int?
+  batteryAh             Int?
+  batteryWh             Int?
+  batteryCondition      String?
+  batteryReconditioned  Boolean?
+  batteryRevisionDate   DateTime?
+  rangeMinKm            Int?
+  rangeMaxKm            Int?
+  batterySerialRef      String? // PRIVATE
+  batteryWarrantyMonths Int?
+  batteryNotes          String? // PRIVATE
+
+  // Physical condition
+  conditionGrade       String? // Nieuwstaat, Zeer goede staat, ...
+  conditionDescription String?
+  cosmeticDefects      String?
+  technicalDefects     String?
+  repairSummary        String?
+
+  // Customer-facing description (generated from structured data, always editable)
+  description        String?
+  descriptionTouched Boolean @default(false)
+
+  // Structured equipment flags (canonical keys, e.g. "charger", "lock")
+  features String[]
+
+  // Public pricing
+  priceCents         Int
+  previousPriceCents Int?
+  saleLabel          String?
+
+  // PRIVATE costs / acquisition
+  acquisitionCostCents Int?
+  acquisitionDate      DateTime?
+  acquisitionSource    String?
+  partsCostCents       Int     @default(0)
+  repairCostCents      Int     @default(0)
+  otherCostCents       Int     @default(0)
+  labourNotes          String?
+  labourHours          Int?
+
+  // PRIVATE traceability
+  frameSerialRef    String?
+  supplierDetails   String?
+  storageLocation   String?
+  workshopNotes     String?
+  internalNotes     String?
+
+  // Lifecycle
+  status          BikeStatus @default(INTAKE)
+  publishedAt     DateTime?
+  soldAt          DateTime?
+  soldOrderNumber String?
+  warrantyStart           DateTime?
+  warrantyEnd             DateTime?
+  realisedSalePriceCents  Int?
+
+  // Migration metadata (old Shopify data is never destroyed)
+  shopifySourceId     String? @unique
+  originalDescription String?
+  migrationMeta       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images         BikeImage[]
+  serviceTasks   ServiceTask[]
+  reservations   Reservation[]
+  orderLines     OrderLine[]
+  cartLines      CartLine[]
+  priceHistory   PriceHistoryEntry[]
+  appointments   Appointment[]
+  serviceRequests ServiceRequest[]
+
+  @@index([status, createdAt])
+  @@index([brand, model])
+  @@index([status, priceCents])
+}
+
+model BikeImage {
+  id         String   @id @default(cuid())
+  bikeId     String
+  storageKey String   @unique
+  altText    String?
+  width      Int
+  height     Int
+  sortOrder  Int      @default(0)
+  isCover    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@index([bikeId, sortOrder])
+}
+
+// Workshop line items (per-bike service history)
+model ServiceTask {
+  id            String    @id @default(cuid())
+  bikeId        String
+  description   String
+  partCostCents Int?
+  quantity      Int       @default(1)
+  doneDate      DateTime?
+  internalNotes String?
+  completed     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@index([bikeId, completed])
+}
+
+model PriceHistoryEntry {
+  id            String   @id @default(cuid())
+  bikeId        String
+  oldPriceCents Int
+  newPriceCents Int
+  changedBy     String?
+  createdAt     DateTime @default(now())
+
+  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@index([bikeId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// STOCK_ITEM — conventional stocked accessory
+// ---------------------------------------------------------------------------
+
+model Product {
+  id                 String  @id @default(cuid())
+  sku                String  @unique
+  title              String
+  slug               String  @unique
+  description        String?
+  category           String?
+  purchasePriceCents Int?
+  salePriceCents     Int
+  stockQuantity      Int     @default(0)
+  lowStockThreshold  Int     @default(3)
+  active             Boolean @default(true)
+
+  shopifySourceId     String? @unique
+  originalDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images         ProductImage[]
+  stockMovements StockMovement[]
+  orderLines     OrderLine[]
+  cartLines      CartLine[]
+  serviceRequests ServiceRequest[]
+
+  @@index([active, category])
+}
+
+model ProductImage {
+  id         String   @id @default(cuid())
+  productId  String
+  storageKey String   @unique
+  altText    String?
+  width      Int
+  height     Int
+  sortOrder  Int      @default(0)
+  isCover    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, sortOrder])
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  productId String
+  change    Int
+  reason    String // receive | order | order-cancel | refund | manual | adjust
+  reference String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Reservations (unique bikes only) — concurrency control
+// ---------------------------------------------------------------------------
+
+model Reservation {
+  id            String           @id @default(cuid())
+  bikeId        String
+  source        ReservationSource
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  note          String?
+  orderId       String?
+  expiresAt     DateTime
+  status        ReservationStatus @default(ACTIVE)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  bike  Bike    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  order Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([bikeId, status])
+  @@index([orderId])
+  @@index([status, expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Orders — immutable snapshot, payment/fulfilment separated
+// ---------------------------------------------------------------------------
+
+model Order {
+  id          String  @id @default(cuid())
+  orderNumber String  @unique // DF-2026-000123
+  userId      String?
+  customerName String
+  customerEmail String
+  customerPhone String?
+  customerCompany String?
+
+  billingLine1  String?
+  billingLine2  String?
+  billingCity   String?
+  billingPostcode String?
+  billingCountry String @default("NL")
+
+  deliveryMethod  String?
+  deliveryLine1   String?
+  deliveryLine2   String?
+  deliveryCity    String?
+  deliveryPostcode String?
+  deliveryCountry String @default("NL")
+  deliveryCostCents Int  @default(0)
+
+  paymentStatus    PaymentStatus    @default(PENDING)
+  fulfilmentStatus FulfilmentStatus @default(UNFULFILLED)
+
+  subtotalCents Int
+  discountCents Int      @default(0)
+  taxTotalCents Int      @default(0)
+  totalCents    Int
+  currency      String   @default("EUR")
+
+  taxBasis Json // per-line tax treatment snapshot (rates, basis)
+  internalNotes String?
+
+  placedAt      DateTime  @default(now())
+  paidAt        DateTime?
+  fulfilledAt   DateTime?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  lines        OrderLine[]
+  payments     Payment[]
+  invoices     Invoice[]
+  reservations Reservation[]
+  serviceRequests ServiceRequest[]
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([paymentStatus, placedAt])
+  @@index([customerEmail])
+  @@index([placedAt])
+}
+
+model OrderLine {
+  id             String   @id @default(cuid())
+  orderId        String
+  kind           LineKind
+  bikeId         String?
+  productId      String?
+  name           String // immutable snapshot
+  identifier     String? // inventory code or SKU
+  unitPriceCents Int
+  quantity       Int
+  lineTotalCents Int
+  taxRate        Float    @default(0) // percent, snapshot
+  taxCents       Int      @default(0)
+  specs          Json? // snapshot of key specs (size, battery, ...)
+  imageKey       String?
+  refundedCents  Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  bike    Bike?    @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([bikeId])
+  @@index([productId])
+  @@index([orderId])
+}
+
+model Payment {
+  id                String    @id @default(cuid())
+  orderId           String
+  provider          String // mollie | mock
+  providerPaymentId String?  @unique
+  amountCents       Int
+  currency          String    @default("EUR")
+  status            String // provider status (raw)
+  description       String?
+  metadata          Json?
+  paymentUrl        String?
+  capturedAt        DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model WebhookEvent {
+  id              String        @id @default(cuid())
+  provider        String
+  externalEventId String
+  type            String
+  payloadHash     String
+  status          WebhookStatus @default(RECEIVED)
+  processedAt     DateTime?
+  error           String?
+  createdAt       DateTime      @default(now())
+
+  @@unique([provider, externalEventId])
+}
+
+// Sequential invoice/order numbering per year
+model NumberCounter {
+  year       Int
+  kind       String // "order" | "invoice"
+  lastNumber Int    @default(0)
+
+  @@id([year, kind])
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  invoiceNumber String      @unique // DF-F-2026-00001
+  orderId     String // multiple documents possible per order (invoice + credit note)
+  status      InvoiceStatus @default(ISSUED)
+  issuedAt    DateTime      @default(now())
+  customer    Json // immutable snapshot
+  company     Json // immutable snapshot
+  lines       Json
+  totals      Json
+  tax         Json
+  pdfKey      String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model WarrantyRecord {
+  id          String   @id @default(cuid())
+  orderId     String
+  orderNumber String
+  scope       String // fiets | accu | elektrisch
+  description String // exact terms issued at sale
+  startAt     DateTime
+  endAt       DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([orderNumber])
+}
+
+// ---------------------------------------------------------------------------
+// Customer workflows
+// ---------------------------------------------------------------------------
+
+model Appointment {
+  id            String            @id @default(cuid())
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  locationId    String?
+  bikeId        String?
+  preferredDate DateTime
+  timeBlock     String
+  message       String?
+  status        AppointmentStatus @default(NEW)
+  internalNotes String?
+  reservationId String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  bike Bike? @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+
+  @@index([status, preferredDate])
+}
+
+model ContactMessage {
+  id            String        @id @default(cuid())
+  name          String
+  email         String
+  phone         String?
+  subject       String?
+  message       String
+  status        ContactStatus @default(NEW)
+  internalNotes String?
+  ipHash        String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model ServiceRequest {
+  id            String                 @id @default(cuid())
+  type          ServiceRequestType
+  orderNumber   String?
+  bikeId        String?
+  productId     String?
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  description   String
+  photoKeys     String[]
+  status        ServiceRequestStatus   @default(NEW)
+  internalNotes String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  order   Order?   @relation(fields: [orderNumber], references: [orderNumber], onDelete: SetNull)
+  bike    Bike?    @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model NewsletterSubscriber {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  consentedAt      DateTime @default(now())
+  consentSource    String?
+  active           Boolean  @default(true)
+  unsubscribeToken String   @unique @default(cuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Cart (server-side, price never stored client-side)
+// ---------------------------------------------------------------------------
+
+model Cart {
+  id        String   @id @default(cuid())
+  token     String   @unique // cookie value
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines CartLine[]
+}
+
+model CartLine {
+  id        String   @id @default(cuid())
+  cartId    String
+  kind      LineKind
+  bikeId    String?
+  productId String?
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  bike    Bike?    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, bikeId])
+  @@unique([cartId, productId])
+  @@index([cartId])
+}
+
+// ---------------------------------------------------------------------------
+// Observability & migration
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String          @id @default(cuid())
+  actorId    String?
+  actorType  AuditActorType  @default(USER)
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json?
+  ipHash     String?
+  createdAt  DateTime        @default(now())
+
+  user User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@index([actorId])
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  event      String
+  entityType String?
+  entityId   String?
+  sessionId  String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([event, createdAt])
+}
+
+model MigrationImport {
+  id         String   @id @default(cuid())
+  source     String // shopify
+  fileName   String
+  recordType String // products | customers | orders | images
+  total      Int      @default(0)
+  imported   Int      @default(0)
+  skipped    Int      @default(0)
+  errors     Json?
+  importedAt DateTime @default(now())
+}
