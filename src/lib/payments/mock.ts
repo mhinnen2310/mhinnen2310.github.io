@@ -89,5 +89,9 @@ export class MockWebhookError extends Error {
 }
 
 export function isMockEnabled(): boolean {
-  return env.paymentProvider === "mock" && !env.isProduction && env.enableMockPaymentWebhook;
+  return (
+    env.paymentProvider === "mock" &&
+    (!env.isProduction || env.isPreview) &&
+    env.enableMockPaymentWebhook
+  );
 }
