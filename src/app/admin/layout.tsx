@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await getStaffUser();
-  if (!user) redirect("/inloggen");
+  if (!user) redirect("/inloggen?callbackUrl=%2Fadmin");
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:py-8">

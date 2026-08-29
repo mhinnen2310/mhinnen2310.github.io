@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { findOrdersForUser, type PublicOrder } from "@/lib/order-view";
 import { formatPrice, formatDate } from "@/lib/utils";
@@ -35,7 +35,7 @@ const FULFILMENT_LABELS: Record<string, string> = {
 
 export default async function AccountPage() {
   const user = await getSessionUser();
-  if (!user) notFound();
+  if (!user) redirect("/inloggen?callbackUrl=%2Faccount");
 
   const [orders, serviceRequests] = await Promise.all([
     findOrdersForUser(user.id),

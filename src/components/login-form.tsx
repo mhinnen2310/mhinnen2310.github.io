@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  * Credentials login (next-auth). Rate limiting lives server-side in the
  * authorize() callback (per e-mail + IP, fixed window).
  */
-export function LoginForm() {
+export function LoginForm({ redirectTo = "/account" }: { redirectTo?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,7 +29,8 @@ export function LoginForm() {
       setBusy(false);
       return;
     }
-    window.location.href = "/account";
+    const destination = redirectTo.startsWith("/") && !redirectTo.startsWith("//") ? redirectTo : "/account";
+    window.location.href = destination;
   }
 
   return (

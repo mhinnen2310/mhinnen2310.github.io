@@ -10,6 +10,9 @@ export default async function InloggenPage(props: {
   const verified = raw.verified === "1";
   const verificationFailed = raw.verified === "0";
   const accountCreated = raw.account === "nieuw";
+  const requestedCallback = Array.isArray(raw.callbackUrl) ? raw.callbackUrl[0] : raw.callbackUrl;
+  const callbackUrl =
+    requestedCallback?.startsWith("/") && !requestedCallback.startsWith("//") ? requestedCallback : "/account";
 
   return (
     <div className="mx-auto max-w-sm px-4 py-12">
@@ -31,7 +34,7 @@ export default async function InloggenPage(props: {
         </p>
       )}
       <div className="mt-6 rounded-2xl border border-line bg-card p-6">
-        <LoginForm />
+        <LoginForm redirectTo={callbackUrl} />
       </div>
     </div>
   );
