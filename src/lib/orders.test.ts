@@ -177,11 +177,19 @@ describe("central sale completion", () => {
     expect(mocks.tx.order.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "order-1", paymentStatus: "PENDING" } }),
     );
-    expect(mocks.tx.bike.updateMany).toHaveBeenCalledWith(
+    expect(mocks.tx.bike.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ id: "bike-a", status: "RESERVED" }),
+        data: { status: "SALE_PENDING" },
+      }),
+    );
+    expect(mocks.tx.bike.updateMany).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         where: expect.objectContaining({
           id: "bike-a",
-          status: "RESERVED",
+          status: "SALE_PENDING",
           reservations: { some: { id: "reservation-a", orderId: "order-1", status: "ACTIVE" } },
         }),
         data: expect.objectContaining({ status: "SOLD", soldOrderNumber: "DF-2026-000001" }),

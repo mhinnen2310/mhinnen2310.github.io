@@ -312,7 +312,7 @@ async function finishClaimedSaleTx(
     const sold = await tx.bike.updateMany({
       where: {
         id: bike.id,
-        status: "RESERVED",
+        status: "SALE_PENDING",
         reservations: { some: { id: reservation.id, orderId: order.id, status: "ACTIVE" } },
       },
       data: {
@@ -381,6 +381,19 @@ async function finishClaimedSaleTx(
   return { outcome: "completed", invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber };
 }
 
+/** Claim the physical inventory for the brief, atomic completion window. */
+async function moveSaleBikesToPendingTx(tx: Prisma.TransactionClient, order: OrderWithRelations, resources: SaleResources) {
+  for (const line of resources.bikeLines) {
+    const reservation = resources.reservationsByBikeId.get(line.bikeId!);
+    if (!reservation) throw new SaleResourceConflictError("Fietsreservering verdween tijdens verkoopafronding.");
+    const changed = await tx.bike.updateMany({
+      where: { id: line.bikeId!, status: "RESERVED", reservations: { some: { id: reservation.id, orderId: order.id, status: "ACTIVE" } } },
+      data: { status: "SALE_PENDING" },
+    });
+    if (changed.count !== 1) throw new SaleResourceConflictError("Fietsstatus veranderde tijdens verkoopafronding.");
+  }
+}
+
 async function completeVerifiedPaymentSaleTx(
   tx: Prisma.TransactionClient,
   paymentId: string,
@@ -436,6 +449,7 @@ async function completeVerifiedPaymentSaleTx(
   if (claimed.count !== 1) {
     throw new SaleResourceConflictError("Bestelling is gelijktijdig verwerkt.");
   }
+  await moveSaleBikesToPendingTx(tx, order, eligibility.resources);
   return finishClaimedSaleTx(tx, order, payment, eligibility.resources, paidAt, warrantyScopes, company, null);
 }
 
@@ -491,12 +505,16 @@ export async function confirmManualPayment(
   orderId: string,
   method: Extract<PaymentMethod, "CASH" | "BANK_TRANSFER">,
   actor: SessionUser | null,
+  receipt?: { cashReceivedCents?: number; changeReturnedCents?: number },
 ): Promise<SaleCompletionResult> {
   if (!actor || !roleAtLeast(actor.role, "STAFF")) {
     throw new OrderStateError("Alleen bevoegd personeel kan een handmatige betaling bevestigen.");
   }
   if (method !== "CASH" && method !== "BANK_TRANSFER") {
     throw new OrderStateError("Deze handmatige betalingsmethode is niet toegestaan.");
+  }
+  if (method === "BANK_TRANSFER" && (receipt?.cashReceivedCents != null || receipt?.changeReturnedCents != null)) {
+    throw new OrderStateError("Contante ontvangstgegevens horen niet bij een bankoverschrijving.");
   }
 
   const saleAt = new Date();
@@ -524,6 +542,15 @@ export async function confirmManualPayment(
     });
     if (claimed.count !== 1) throw new SaleResourceConflictError("Bestelling is gelijktijdig verwerkt.");
 
+    await moveSaleBikesToPendingTx(tx, withRelations, eligibility.resources);
+
+    const cashReceivedCents = receipt?.cashReceivedCents;
+    const changeReturnedCents = receipt?.changeReturnedCents;
+    if (method === "CASH") {
+      if (cashReceivedCents != null && (!Number.isSafeInteger(cashReceivedCents) || cashReceivedCents < order.totalCents)) throw new OrderStateError("Het ontvangen contante bedrag is ongeldig.");
+      if (changeReturnedCents != null && (!Number.isSafeInteger(changeReturnedCents) || changeReturnedCents < 0)) throw new OrderStateError("Het wisselgeld is ongeldig.");
+      if (cashReceivedCents != null && changeReturnedCents != null && cashReceivedCents - changeReturnedCents !== order.totalCents) throw new OrderStateError("Ontvangen bedrag minus wisselgeld moet gelijk zijn aan het ordertotaal.");
+    }
     const payment = await tx.payment.create({
       data: {
         orderId: order.id,
@@ -533,6 +560,10 @@ export async function confirmManualPayment(
         currency: order.currency,
         status: "received",
         capturedAt: saleAt,
+        confirmedAt: saleAt,
+        confirmedById: actor.id,
+        cashReceivedCents: method === "CASH" ? (cashReceivedCents ?? order.totalCents) : null,
+        changeReturnedCents: method === "CASH" ? (changeReturnedCents ?? 0) : null,
         description: `${method === "CASH" ? "Contante betaling" : "Bankoverschrijving"} bevestigd door ${actor.email}`,
         metadata: { confirmedBy: actor.id, confirmedByEmail: actor.email },
       },
@@ -542,7 +573,7 @@ export async function confirmManualPayment(
       "payment.manually_confirmed",
       "Payment",
       payment.id,
-      { orderNumber: order.orderNumber, method, amountCents: order.totalCents },
+      { orderNumber: order.orderNumber, method, amountCents: order.totalCents, cashReceivedCents: method === "CASH" ? (cashReceivedCents ?? order.totalCents) : null, changeReturnedCents: method === "CASH" ? (changeReturnedCents ?? 0) : null, confirmedAt: saleAt.toISOString() },
       actor,
     );
     return finishClaimedSaleTx(tx, withRelations, payment, eligibility.resources, saleAt, warrantyScopes, company, actor);

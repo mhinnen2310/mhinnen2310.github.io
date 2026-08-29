@@ -171,6 +171,7 @@ model User {
   completedServiceTasks ServiceTask[] @relation("ServiceTaskCompletedBy")
   createdQrBatches QrBatch[] @relation("QrBatchCreatedBy")
   boundQrTags QrTag[] @relation("QrTagBoundBy")
+  confirmedPayments Payment[] @relation("PaymentConfirmedBy")
 
   @@index([role])
 }
@@ -709,13 +710,19 @@ model Payment {
   metadata          Json?
   paymentUrl        String?
   capturedAt        DateTime?
+  confirmedAt       DateTime?
+  confirmedById     String?
+  cashReceivedCents Int?
+  changeReturnedCents Int?
   refundedAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  confirmedBy User? @relation("PaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([confirmedById])
 }
 
 model WebhookEvent {
