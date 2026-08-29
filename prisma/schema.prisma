@@ -124,6 +124,12 @@ enum InspectionResult {
   NOT_APPLICABLE
 }
 
+enum QrTagStatus {
+  UNUSED
+  BOUND
+  RETIRED
+}
+
 enum WebhookStatus {
   RECEIVED
   PROCESSING
@@ -163,6 +169,8 @@ model User {
   authTokens AuthToken[]
   auditLogs  AuditLog[]
   completedServiceTasks ServiceTask[] @relation("ServiceTaskCompletedBy")
+  createdQrBatches QrBatch[] @relation("QrBatchCreatedBy")
+  boundQrTags QrTag[] @relation("QrTagBoundBy")
 
   @@index([role])
 }
@@ -379,6 +387,7 @@ model Bike {
   serviceRequests ServiceRequest[]
   warrantyRecords WarrantyRecord[]
   intakeRecord    BikeIntake?
+  qrTag           QrTag?
 
   @@index([status, createdAt])
   @@index([brand, model])
@@ -456,6 +465,48 @@ model BikeIntake {
   bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
 
   @@index([theftCheckCompleted])
+}
+
+// Permanent physical QR assets. The human display code and opaque URL token
+// deliberately have different purposes and are both globally unique.
+model QrBatch {
+  id                String   @id @default(cuid())
+  batchNumber       String   @unique // QR-2026-0001
+  firstSerialNumber Int
+  lastSerialNumber  Int
+  quantity          Int
+  labelsPerPage     Int      @default(15)
+  createdAt         DateTime @default(now())
+  createdById       String?
+
+  createdBy User?   @relation("QrBatchCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  tags      QrTag[]
+
+  @@index([createdAt])
+}
+
+model QrTag {
+  id          String      @id @default(cuid())
+  serialNumber Int        @unique
+  displayCode String      @unique // DF-000001; never reused
+  secureToken String      @unique
+  status      QrTagStatus @default(UNUSED)
+  batchId     String
+  bikeId      String?     @unique
+  boundAt     DateTime?
+  boundById   String?
+  retiredAt   DateTime?
+  retiredReason String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  batch   QrBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  bike    Bike?   @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  boundBy User?   @relation("QrTagBoundBy", fields: [boundById], references: [id], onDelete: SetNull)
+
+  @@index([status, serialNumber])
+  @@index([batchId])
+  @@index([bikeId])
 }
 
 model PriceHistoryEntry {

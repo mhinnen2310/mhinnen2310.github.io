@@ -1,0 +1,8 @@
+"use client";
+import { useState } from "react";
+
+export function AdminQrBindForm({ tagId, displayCode }: { tagId: string; displayCode: string }) {
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState<string | null>(null);
+  async function submit(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); const inventoryCode = String(new FormData(event.currentTarget).get("inventoryCode") ?? "").trim(); if (!inventoryCode) return; setBusy(true); setMessage(null); try { const response = await fetch(`/api/admin/qr/tags/${tagId}/bind`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ inventoryCode }) }); const body = await response.json().catch(() => null) as { error?: string } | null; if (!response.ok) { setMessage(body?.error ?? "Koppelen mislukt."); return; } window.location.reload(); } catch { setMessage("De verbinding is mislukt."); } finally { setBusy(false); } }
+  return <form onSubmit={submit} className="mt-5 rounded-xl border border-line bg-card p-5"><h2 className="font-semibold text-ink">{displayCode} koppelen</h2><p className="mt-1 text-sm text-ink-soft">Vul het bestaande inventarisnummer van de intakefiets in.</p><div className="mt-3 flex flex-wrap gap-3"><input name="inventoryCode" required placeholder="DF-B-2026-000001" className="rounded-lg border border-line px-3 py-2 text-sm text-ink" /><button disabled={busy} className="rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Koppelen…" : "Koppel aan fiets"}</button></div>{message && <p className="mt-3 text-sm text-state-error">{message}</p>}</form>;
+}

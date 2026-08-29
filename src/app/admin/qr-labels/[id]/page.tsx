@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { AdminQrBindForm } from "@/components/admin-qr-bind-form";
+import { prisma } from "@/lib/prisma";
+
+export default async function QrTagDetailPage({ params }: { params: Promise<{ id: string }> }) { const { id } = await params; const tag = await prisma.qrTag.findUnique({ where: { id }, include: { batch: true, bike: { select: { id: true, inventoryCode: true, title: true, status: true } } } }); if (!tag) notFound(); return <div><Link href="/admin/qr-labels" className="text-sm text-brand-800 underline">← QR-labels</Link><h2 className="mt-3 text-2xl font-bold text-ink">{tag.displayCode}</h2><p className="mt-1 text-sm text-ink-soft">{tag.status} · {tag.batch.batchNumber}</p>{tag.status === "UNUSED" ? <AdminQrBindForm tagId={tag.id} displayCode={tag.displayCode} /> : tag.bike ? <div className="mt-5 rounded-xl border border-line bg-card p-5"><strong>{tag.bike.title}</strong><p className="mt-1 text-sm text-ink-soft">{tag.bike.inventoryCode} · {tag.bike.status}</p><Link href={`/admin/fietsen/${tag.bike.id}`} className="mt-3 inline-block text-sm font-semibold text-brand-800 underline">Open fietsdossier</Link></div> : <p className="mt-5 text-sm text-ink-soft">Deze tag is ingetrokken.</p>}</div>; }
