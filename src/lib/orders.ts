@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 import { env } from "./env";
 import { Prisma } from "@prisma/client";
 import type { Bike, Order } from "@prisma/client";
-import { getWarrantyScopes } from "./warranty";
+import { addMonths, getWarrantyScopes } from "./warranty";
 import { getPaymentProvider } from "./payments";
 
 /**
@@ -104,7 +104,7 @@ export async function markOrderPaid(orderId: string, paidAt: Date | null = null)
       if (!bike) continue;
       if (bike.status !== "RESERVED") continue; // already handled
 
-      const warranties = await buildWarrantyRecords(bike, now, order);
+      const warranties = await buildWarrantyRecords(bike, now);
       if (warranties.length > 0) {
         await tx.warrantyRecord.createMany({
           data: warranties.map((w) => ({
@@ -139,31 +139,53 @@ export async function markOrderPaid(orderId: string, paidAt: Date | null = null)
   return changed;
 }
 
-async function buildWarrantyRecords(
+export async function buildWarrantyRecords(
   bike: Bike,
   saleDate: Date,
-  order: { id: string; orderNumber: string },
 ) {
   const scopes = await getWarrantyScopes();
-  const records: { scope: string; description: string; startAt: Date; endAt: Date }[] = [];
-  const addMonths = (d: Date, months: number) => {
-    const x = new Date(d);
-    x.setMonth(x.getMonth() + months);
-    return x;
-  };
+  const records: { bikeId: string; scope: string; description: string; startAt: Date; endAt: Date }[] = [];
   for (const scope of scopes) {
     if (scope.id === "accu" && !(bike.isElectric || bike.batteryVoltage)) continue;
     if (scope.id === "elektrisch" && !bike.isElectric) continue;
     const months = scope.id === "accu" && bike.batteryWarrantyMonths ? bike.batteryWarrantyMonths : scope.months;
     if (!months) continue;
+    const duration = `${months} ${months === 1 ? "maand" : "maanden"}`;
+    const description = months === scope.months
+      ? scope.wording
+      : scope.wording.replace(/\d+\s+maanden?/i, duration);
     records.push({
+      bikeId: bike.id,
       scope: scope.id,
-      description: scope.wording,
+      description: description === scope.wording && months !== scope.months ? `${scope.wording} (duur: ${duration})` : description,
       startAt: saleDate,
       endAt: addMonths(saleDate, months),
     });
   }
   return records;
+}
+
+/** Repairs warranty rows issued before they were linked to a bike. Preview
+ * bootstrap calls this idempotently after the schema migration. */
+export async function repairLegacyWarrantyRecords(): Promise<number> {
+  const legacy = await prisma.warrantyRecord.findMany({ where: { bikeId: null }, select: { orderId: true } });
+  const orderIds = [...new Set(legacy.map((item) => item.orderId))];
+  for (const orderId of orderIds) {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { lines: true } });
+    if (!order || order.paymentStatus !== "PAID") continue;
+    const saleDate = order.paidAt ?? order.placedAt;
+    const records: Awaited<ReturnType<typeof buildWarrantyRecords>> = [];
+    for (const line of order.lines) {
+      if (line.kind !== "UNIQUE_BIKE" || !line.bikeId) continue;
+      const bike = await prisma.bike.findUnique({ where: { id: line.bikeId } });
+      if (bike) records.push(...await buildWarrantyRecords(bike, saleDate));
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.warrantyRecord.deleteMany({ where: { orderId } });
+      if (records.length) await tx.warrantyRecord.createMany({ data: records.map((record) => ({ orderId, orderNumber: order.orderNumber, ...record })) });
+    });
+  }
+  return orderIds.length;
 }
 
 export async function markOrderUnpaid(

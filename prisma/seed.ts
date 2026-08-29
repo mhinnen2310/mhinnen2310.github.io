@@ -557,6 +557,8 @@ async function wipe() {
     "productImage",
     "bike",
     "product",
+    "appointmentAvailabilityOverride",
+    "appointmentAvailabilityRule",
     "appointment",
     "contactMessage",
     "serviceRequest",

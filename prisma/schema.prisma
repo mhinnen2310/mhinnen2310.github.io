@@ -341,6 +341,7 @@ model Bike {
   priceHistory    PriceHistoryEntry[]
   appointments    Appointment[]
   serviceRequests ServiceRequest[]
+  warrantyRecords WarrantyRecord[]
 
   @@index([status, createdAt])
   @@index([brand, model])
@@ -636,6 +637,7 @@ model Invoice {
 model WarrantyRecord {
   id          String   @id @default(cuid())
   orderId     String
+  bikeId      String?
   orderNumber String
   scope       String // fiets | accu | elektrisch
   description String // exact terms issued at sale
@@ -643,7 +645,10 @@ model WarrantyRecord {
   endAt       DateTime
   createdAt   DateTime @default(now())
 
+  bike Bike? @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+
   @@index([orderNumber])
+  @@index([bikeId])
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +674,33 @@ model Appointment {
   bike Bike? @relation(fields: [bikeId], references: [id], onDelete: SetNull)
 
   @@index([status, preferredDate])
+}
+
+model AppointmentAvailabilityRule {
+  id          String   @id @default(cuid())
+  weekday     Int
+  startTime   String
+  endTime     String
+  slotMinutes Int      @default(60)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([weekday, active])
+}
+
+model AppointmentAvailabilityOverride {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  closed      Boolean  @default(false)
+  startTime   String?
+  endTime     String?
+  slotMinutes Int?
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
 }
 
 model ContactMessage {

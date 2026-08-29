@@ -22,6 +22,14 @@ type AdminBike = {
   images: Array<{ id: string; storageKey: string; width: number; height: number; isCover: boolean }>;
 };
 
+export type BikeFormSuggestions = {
+  brands: string[];
+  modelsByBrand: Record<string, string[]>;
+  bikeTypes: string[];
+  colours: string[];
+  conditions: string[];
+};
+
 const statusOptions: Array<{ value: AdminBike["status"]; label: string }> = [
   { value: "INTAKE", label: "Intake" },
   { value: "WORKSHOP", label: "Werkplaats" },
@@ -84,11 +92,22 @@ async function uploadBikeImages(bikeId: string, files: File[]): Promise<{ upload
   return { uploaded, error: null };
 }
 
-export function AdminBikeCreateForm() {
+export function AdminBikeCreateForm({ suggestions }: { suggestions: BikeFormSuggestions }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdBikeId, setCreatedBikeId] = useState<string | null>(null);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [title, setTitle] = useState("");
+  const [titleEdited, setTitleEdited] = useState(false);
+
+  function updateIdentity(nextBrand: string, nextModel: string) {
+    if (!titleEdited) setTitle([nextBrand, nextModel].filter(Boolean).join(" "));
+  }
+
+  const smartInputClass = "mt-1 w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink";
+  const modelSuggestions = suggestions.modelsByBrand[brand] ?? [...new Set(Object.values(suggestions.modelsByBrand).flat())].sort((a, b) => a.localeCompare(b, "nl"));
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -167,14 +186,17 @@ export function AdminBikeCreateForm() {
         <Field label="Voorraadcode" name="inventoryCode" required />
         <Field label="Vraagprijs (€)" name="priceEuro" type="number" required />
       </div>
-      <Field label="Titel" name="title" required />
+      <label className="block text-sm text-ink-soft">Titel
+        <div className="mt-1 flex gap-2"><input name="title" required value={title} onChange={(event) => { setTitleEdited(true); setTitle(event.target.value); }} className="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink" /><button type="button" onClick={() => { setTitleEdited(false); setTitle([brand, model].filter(Boolean).join(" ")); }} className="shrink-0 rounded-lg border border-line px-3 py-2 text-xs font-semibold text-ink">Automatisch</button></div>
+        <span className="mt-1 block text-xs text-ink-faint">Wordt automatisch opgebouwd uit merk en model; je kunt hem altijd aanpassen.</span>
+      </label>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Merk" name="brand" required />
-        <Field label="Model" name="model" required />
-        <Field label="Fietstype" name="bikeType" />
-        <Field label="Kleur" name="colour" />
+        <label className="block text-sm text-ink-soft">Merk<input name="brand" list="bike-brands" required value={brand} onChange={(event) => { setBrand(event.target.value); updateIdentity(event.target.value, model); }} className={smartInputClass} /><datalist id="bike-brands">{suggestions.brands.map((value) => <option key={value} value={value} />)}</datalist></label>
+        <label className="block text-sm text-ink-soft">Model<input name="model" list="bike-models" required value={model} onChange={(event) => { setModel(event.target.value); updateIdentity(brand, event.target.value); }} className={smartInputClass} /><datalist id="bike-models">{modelSuggestions.map((value) => <option key={value} value={value} />)}</datalist></label>
+        <label className="block text-sm text-ink-soft">Fietstype<input name="bikeType" list="bike-types" className={smartInputClass} /><datalist id="bike-types">{suggestions.bikeTypes.map((value) => <option key={value} value={value} />)}</datalist></label>
+        <label className="block text-sm text-ink-soft">Kleur<input name="colour" list="bike-colours" className={smartInputClass} /><datalist id="bike-colours">{suggestions.colours.map((value) => <option key={value} value={value} />)}</datalist></label>
       </div>
-      <Field label="Conditie" name="conditionGrade" />
+      <label className="block text-sm text-ink-soft">Conditie<input name="conditionGrade" list="bike-conditions" className={smartInputClass} /><datalist id="bike-conditions">{suggestions.conditions.map((value) => <option key={value} value={value} />)}</datalist></label>
       <label className="block text-sm text-ink-soft">
         Advertentietekst
         <textarea name="description" rows={7} className="mt-1 w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink" />

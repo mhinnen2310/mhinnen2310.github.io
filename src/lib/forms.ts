@@ -5,6 +5,7 @@ import { emailAdminAppointment, emailAdminContact, emailAdminServiceRequest } fr
 import { processImageUpload } from "./images";
 import { getSettings } from "./settings";
 import { randomToken } from "./utils";
+import { assertAppointmentSlotAvailable } from "./appointment-availability";
 
 /**
  * Customer-initiated workflow forms (specs 17, 18, 19, 39).
@@ -50,28 +51,6 @@ function optional(v: unknown, max: number): string | null {
   return s;
 }
 
-function parseDate(v: unknown): Date {
-  if (typeof v !== "string" || !v) throw new FormError("Kies een datum.");
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) throw new FormError("Ongeldige datum.");
-  const day = new Date();
-  day.setHours(0, 0, 0, 0);
-  if (d.getTime() < day.getTime()) throw new FormError("De gekozen datum ligt in het verleden.");
-  const max = new Date();
-  max.setDate(max.getDate() + 90);
-  if (d.getTime() > max.getTime()) throw new FormError("Kies een datum binnen de komende 90 dagen.");
-  return d;
-}
-
-export const TIME_BLOCKS = ["'s ochtends (09:00–12:00)", "'s middags (12:00–15:00)", "'s avonds (15:00–18:00)"] as const;
-
-function parseTimeBlock(v: unknown): string {
-  if (typeof v !== "string" || !TIME_BLOCKS.includes(v as (typeof TIME_BLOCKS)[number])) {
-    throw new FormError("Kies een tijdstip.");
-  }
-  return v;
-}
-
 async function guard(headers: Headers, email: string, purpose: "form" | "newsletter", limit = 5, windowSeconds = 600) {
   const ip = await ipHashOf(headers);
   const rl = await rateLimitRequest(purpose, [email, ip ?? "no-ip"], limit, windowSeconds);
@@ -98,8 +77,11 @@ export async function createAppointment(headers: Headers, input: AppointmentInpu
   if (!isEmail(input.email)) throw new FormError("Vul een geldig e-mailadres in.", "email");
   const email = input.email.trim().toLowerCase();
   const phone = optional(input.phone, 30);
-  const preferredDate = parseDate(input.preferredDate);
-  const timeBlock = parseTimeBlock(input.timeBlock);
+  if (typeof input.preferredDate !== "string" || typeof input.timeBlock !== "string") throw new FormError("Kies een beschikbaar tijdslot.");
+  let preferredDate: Date;
+  try { preferredDate = await assertAppointmentSlotAvailable(input.preferredDate, input.timeBlock); }
+  catch (cause) { throw new FormError(cause instanceof Error ? cause.message : "Kies een beschikbaar tijdslot."); }
+  const timeBlock = input.timeBlock;
   const message = optional(input.message, 2000);
 
   let bikeId: string | null = null;

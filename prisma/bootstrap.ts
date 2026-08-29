@@ -1,12 +1,16 @@
 import "dotenv/config";
 import { spawnSync } from "node:child_process";
 import { prisma } from "../src/lib/prisma";
+import { repairLegacyWarrantyRecords } from "../src/lib/orders";
 
 async function main() {
   if (process.env.DEPLOYMENT_MODE !== "preview") {
     console.log("Preview bootstrap skipped: DEPLOYMENT_MODE is not preview.");
     return;
   }
+
+  const repairedOrders = await repairLegacyWarrantyRecords();
+  if (repairedOrders) console.log(`Recalculated warranty records for ${repairedOrders} existing order(s).`);
 
   const [userCount, bikeCount, productCount, bikeImageCount, productImageCount] = await Promise.all([
     prisma.user.count(),

@@ -110,6 +110,10 @@ export async function getWarrantyPublicNote(): Promise<string> {
 
 export function addMonths(d: Date, months: number): Date {
   const x = new Date(d);
-  x.setMonth(x.getMonth() + months);
+  const originalDay = x.getUTCDate();
+  x.setUTCDate(1);
+  x.setUTCMonth(x.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+  x.setUTCDate(Math.min(originalDay, lastDay));
   return x;
 }
