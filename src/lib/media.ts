@@ -2,6 +2,10 @@
 // here rather than importing the server-only image-processing pipeline (sharp).
 export const IMAGE_WIDTHS = [256, 400, 800, 1200, 1600] as const;
 
+function encodedMediaKey(key: string): string {
+  return key.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
+
 /**
  * Media URL helpers.
  *
@@ -12,12 +16,12 @@ export const IMAGE_WIDTHS = [256, 400, 800, 1200, 1600] as const;
  */
 
 export function mediaOriginalUrl(key: string, file: string): string {
-  return `/api/media/${encodeURIComponent(key)}/${file}`;
+  return `/api/media/${encodedMediaKey(key)}/${encodeURIComponent(file)}`;
 }
 
 export function mediaWidthUrl(key: string, width: number, format: "webp" | "avif" = "webp"): string {
   const prefix = format === "avif" ? "a" : "w";
-  return `/api/media/${encodeURIComponent(key)}/${prefix}-${width}.${format}`;
+  return `/api/media/${encodedMediaKey(key)}/${prefix}-${width}.${format}`;
 }
 
 /**
