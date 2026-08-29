@@ -25,6 +25,8 @@ services:
         value: demifietsen-media
       - key: DATABASE_URL
         sync: false
+      - key: DIRECT_URL
+        sync: false
       - key: AUTH_SECRET
         generateValue: true
       - key: CRON_SECRET

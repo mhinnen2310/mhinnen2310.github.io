@@ -9,8 +9,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------------------------------------------------------------------------
@@ -137,10 +138,10 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  addresses   UserAddress[]
-  orders      Order[]
-  authTokens  AuthToken[]
-  auditLogs   AuditLog[]
+  addresses  UserAddress[]
+  orders     Order[]
+  authTokens AuthToken[]
+  auditLogs  AuditLog[]
 
   @@index([role])
 }
@@ -236,25 +237,25 @@ model UrlRedirect {
 // ---------------------------------------------------------------------------
 
 model Bike {
-  id            String  @id @default(cuid())
-  inventoryCode String  @unique // "2455", "T5", ...
-  slug          String  @unique
+  id            String @id @default(cuid())
+  inventoryCode String @unique // "2455", "T5", ...
+  slug          String @unique
   title         String
   brand         String
   model         String
 
   // Bicycle identity / specification (all optional — old stock may lack data)
-  bikeType        String? // stapper, trekking, mountain, cargo, city, ...
-  isElectric      Boolean @default(true)
-  frameStyle      String? // doorligger, diamond, ...
-  genderStyle     String? // heren, damen, unisex
-  colour          String?
-  frameSizeCm     Int?
-  wheelSizeCm     Int?
-  gears           Int?
+  bikeType         String? // stapper, trekking, mountain, cargo, city, ...
+  isElectric       Boolean @default(true)
+  frameStyle       String? // doorligger, diamond, ...
+  genderStyle      String? // heren, damen, unisex
+  colour           String?
+  frameSizeCm      Int?
+  wheelSizeCm      Int?
+  gears            Int?
   assistanceLevels Int?
-  brakeInfo       String?
-  drivetrainInfo  String?
+  brakeInfo        String?
+  drivetrainInfo   String?
 
   // Electric system
   motorManufacturer String?
@@ -302,27 +303,27 @@ model Bike {
   acquisitionCostCents Int?
   acquisitionDate      DateTime?
   acquisitionSource    String?
-  partsCostCents       Int     @default(0)
-  repairCostCents      Int     @default(0)
-  otherCostCents       Int     @default(0)
+  partsCostCents       Int       @default(0)
+  repairCostCents      Int       @default(0)
+  otherCostCents       Int       @default(0)
   labourNotes          String?
   labourHours          Int?
 
   // PRIVATE traceability
-  frameSerialRef    String?
-  supplierDetails   String?
-  storageLocation   String?
-  workshopNotes     String?
-  internalNotes     String?
+  frameSerialRef  String?
+  supplierDetails String?
+  storageLocation String?
+  workshopNotes   String?
+  internalNotes   String?
 
   // Lifecycle
-  status          BikeStatus @default(INTAKE)
-  publishedAt     DateTime?
-  soldAt          DateTime?
-  soldOrderNumber String?
-  warrantyStart           DateTime?
-  warrantyEnd             DateTime?
-  realisedSalePriceCents  Int?
+  status                 BikeStatus @default(INTAKE)
+  publishedAt            DateTime?
+  soldAt                 DateTime?
+  soldOrderNumber        String?
+  warrantyStart          DateTime?
+  warrantyEnd            DateTime?
+  realisedSalePriceCents Int?
 
   // Migration metadata (old Shopify data is never destroyed)
   shopifySourceId     String? @unique
@@ -332,13 +333,13 @@ model Bike {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  images         BikeImage[]
-  serviceTasks   ServiceTask[]
-  reservations   Reservation[]
-  orderLines     OrderLine[]
-  cartLines      CartLine[]
-  priceHistory   PriceHistoryEntry[]
-  appointments   Appointment[]
+  images          BikeImage[]
+  serviceTasks    ServiceTask[]
+  reservations    Reservation[]
+  orderLines      OrderLine[]
+  cartLines       CartLine[]
+  priceHistory    PriceHistoryEntry[]
+  appointments    Appointment[]
   serviceRequests ServiceRequest[]
 
   @@index([status, createdAt])
@@ -416,10 +417,10 @@ model Product {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  images         ProductImage[]
-  stockMovements StockMovement[]
-  orderLines     OrderLine[]
-  cartLines      CartLine[]
+  images          ProductImage[]
+  stockMovements  StockMovement[]
+  orderLines      OrderLine[]
+  cartLines       CartLine[]
   serviceRequests ServiceRequest[]
 
   @@index([active, category])
@@ -460,7 +461,7 @@ model StockMovement {
 // ---------------------------------------------------------------------------
 
 model Reservation {
-  id            String           @id @default(cuid())
+  id            String            @id @default(cuid())
   bikeId        String
   source        ReservationSource
   customerName  String?
@@ -470,11 +471,11 @@ model Reservation {
   orderId       String?
   expiresAt     DateTime
   status        ReservationStatus @default(ACTIVE)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
-  bike  Bike    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
-  order Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  bike  Bike   @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([bikeId, status])
   @@index([orderId])
@@ -486,54 +487,54 @@ model Reservation {
 // ---------------------------------------------------------------------------
 
 model Order {
-  id          String  @id @default(cuid())
-  orderNumber String  @unique // DF-2026-000123
-  userId      String?
-  customerName String
-  customerEmail String
-  customerPhone String?
+  id              String  @id @default(cuid())
+  orderNumber     String  @unique // DF-2026-000123
+  userId          String?
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
   customerCompany String?
 
-  billingLine1  String?
-  billingLine2  String?
-  billingCity   String?
+  billingLine1    String?
+  billingLine2    String?
+  billingCity     String?
   billingPostcode String?
-  billingCountry String @default("NL")
+  billingCountry  String  @default("NL")
 
-  deliveryMethod  String?
-  deliveryLine1   String?
-  deliveryLine2   String?
-  deliveryCity    String?
-  deliveryPostcode String?
-  deliveryCountry String @default("NL")
-  deliveryCostCents Int  @default(0)
+  deliveryMethod    String?
+  deliveryLine1     String?
+  deliveryLine2     String?
+  deliveryCity      String?
+  deliveryPostcode  String?
+  deliveryCountry   String  @default("NL")
+  deliveryCostCents Int     @default(0)
 
   paymentStatus    PaymentStatus    @default(PENDING)
   fulfilmentStatus FulfilmentStatus @default(UNFULFILLED)
 
   subtotalCents Int
-  discountCents Int      @default(0)
-  taxTotalCents Int      @default(0)
+  discountCents Int    @default(0)
+  taxTotalCents Int    @default(0)
   totalCents    Int
-  currency      String   @default("EUR")
+  currency      String @default("EUR")
 
-  taxBasis Json // per-line tax treatment snapshot (rates, basis)
+  taxBasis      Json // per-line tax treatment snapshot (rates, basis)
   internalNotes String?
 
-  placedAt      DateTime  @default(now())
-  paidAt        DateTime?
-  fulfilledAt   DateTime?
-  cancelledAt   DateTime?
-  cancelReason  String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  placedAt     DateTime  @default(now())
+  paidAt       DateTime?
+  fulfilledAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  lines        OrderLine[]
-  payments     Payment[]
-  invoices     Invoice[]
-  reservations Reservation[]
+  lines           OrderLine[]
+  payments        Payment[]
+  invoices        Invoice[]
+  reservations    Reservation[]
   serviceRequests ServiceRequest[]
-  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([paymentStatus, placedAt])
   @@index([customerEmail])
@@ -571,7 +572,7 @@ model Payment {
   id                String    @id @default(cuid())
   orderId           String
   provider          String // mollie | mock
-  providerPaymentId String?  @unique
+  providerPaymentId String?   @unique
   amountCents       Int
   currency          String    @default("EUR")
   status            String // provider status (raw)
@@ -612,20 +613,20 @@ model NumberCounter {
 }
 
 model Invoice {
-  id          String        @id @default(cuid())
-  invoiceNumber String      @unique // DF-F-2026-00001
-  orderId     String // multiple documents possible per order (invoice + credit note)
-  status      InvoiceStatus @default(ISSUED)
-  issuedAt    DateTime      @default(now())
-  customer    Json // immutable snapshot
-  company     Json // immutable snapshot
-  lines       Json
-  totals      Json
-  tax         Json
-  pdfKey      String?
-  notes       String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique // DF-F-2026-00001
+  orderId       String // multiple documents possible per order (invoice + credit note)
+  status        InvoiceStatus @default(ISSUED)
+  issuedAt      DateTime      @default(now())
+  customer      Json // immutable snapshot
+  company       Json // immutable snapshot
+  lines         Json
+  totals        Json
+  tax           Json
+  pdfKey        String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -685,7 +686,7 @@ model ContactMessage {
 }
 
 model ServiceRequest {
-  id            String                 @id @default(cuid())
+  id            String               @id @default(cuid())
   type          ServiceRequestType
   orderNumber   String?
   bikeId        String?
@@ -695,10 +696,10 @@ model ServiceRequest {
   customerPhone String?
   description   String
   photoKeys     String[]
-  status        ServiceRequestStatus   @default(NEW)
+  status        ServiceRequestStatus @default(NEW)
   internalNotes String?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
 
   order   Order?   @relation(fields: [orderNumber], references: [orderNumber], onDelete: SetNull)
   bike    Bike?    @relation(fields: [bikeId], references: [id], onDelete: SetNull)
@@ -755,15 +756,15 @@ model CartLine {
 // ---------------------------------------------------------------------------
 
 model AuditLog {
-  id         String          @id @default(cuid())
+  id         String         @id @default(cuid())
   actorId    String?
-  actorType  AuditActorType  @default(USER)
+  actorType  AuditActorType @default(USER)
   action     String
   entityType String
   entityId   String?
   meta       Json?
   ipHash     String?
-  createdAt  DateTime        @default(now())
+  createdAt  DateTime       @default(now())
 
   user User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
