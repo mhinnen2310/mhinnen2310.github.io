@@ -8,13 +8,25 @@ async function main() {
     return;
   }
 
-  const userCount = await prisma.user.count();
-  if (userCount > 0) {
-    console.log("Preview bootstrap skipped: the database already contains users.");
+  const [userCount, bikeCount, productCount, bikeImageCount, productImageCount] = await Promise.all([
+    prisma.user.count(),
+    prisma.bike.count(),
+    prisma.product.count(),
+    prisma.bikeImage.count(),
+    prisma.productImage.count(),
+  ]);
+  const previewSeedIsComplete =
+    userCount >= 2 && bikeCount >= 7 && productCount >= 6 && bikeImageCount > 0 && productImageCount > 0;
+  if (previewSeedIsComplete) {
+    console.log("Preview bootstrap skipped: complete demo data is already present.");
     return;
   }
 
-  console.log("Empty preview database detected; inserting demo data once.");
+  console.log(
+    userCount === 0
+      ? "Empty preview database detected; inserting demo data once."
+      : "Incomplete preview seed detected; rebuilding the demo data once.",
+  );
   await prisma.$disconnect();
 
   const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
