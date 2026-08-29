@@ -6,7 +6,7 @@ import { formatDateTime, formatPrice } from "@/lib/utils";
 const FULFILMENT_OPTIONS = [
   { value: "UNFULFILLED", label: "Nog verwerken" }, { value: "PREPARING", label: "In voorbereiding" },
   { value: "READY_FOR_PICKUP", label: "Klaar voor ophalen" }, { value: "OUT_FOR_DELIVERY", label: "Onderweg" },
-  { value: "FULFILLED", label: "Afgerond" }, { value: "CANCELLED", label: "Geannuleerd" },
+  { value: "FULFILLED", label: "Afgerond" },
 ];
 
 export default async function AdminOrdersPage() {
@@ -29,7 +29,7 @@ export default async function AdminOrdersPage() {
               <td className="px-4 py-3"><p>{order.customerName}</p><a href={`mailto:${order.customerEmail}`} className="text-xs text-brand-700 underline">{order.customerEmail}</a></td>
               <td className="px-4 py-3">{formatPrice(order.totalCents)}<p className="text-xs text-ink-faint">{order.deliveryMethod ?? "geen levering"}</p></td>
               <td className="px-4 py-3"><span className="rounded-full bg-surface px-2 py-1 text-xs font-semibold">{order.paymentStatus}</span></td>
-              <td className="px-4 py-3"><AdminStatusControl entity="orderFulfilment" id={order.id} value={order.fulfilmentStatus} options={FULFILMENT_OPTIONS} /></td>
+              <td className="px-4 py-3"><AdminStatusControl entity="orderFulfilment" id={order.id} value={order.fulfilmentStatus} options={order.fulfilmentStatus === "CANCELLED" ? [{ value: "CANCELLED", label: "Geannuleerd (orderlifecycle)", disabled: true }, ...FULFILMENT_OPTIONS] : FULFILMENT_OPTIONS} /></td>
             </tr>)}
             {orders.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-soft">Nog geen bestellingen.</td></tr>}
           </tbody>

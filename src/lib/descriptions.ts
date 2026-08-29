@@ -1,6 +1,7 @@
 import type { Bike } from "@prisma/client";
 import { FEATURE_CATALOG } from "./bikes";
 import { getWarrantyConfig } from "./warranty";
+import { numericValue } from "./utils";
 
 /**
  * Customer-facing description generation (spec 26).
@@ -42,7 +43,7 @@ export function generateBikeDescription(bike: Bike, ctx: DescriptionContext = DE
     const v = b[k];
     return typeof v === "string" && v.trim() ? v : v == null ? null : String(v);
   };
-  const n = (k: string): number | null => (typeof b[k] === "number" ? (b[k] as number) : null);
+  const n = (k: string): number | null => numericValue(b[k]);
 
   // --- Opening ---------------------------------------------------------------
   const cond = s("conditionGrade");
@@ -61,7 +62,7 @@ export function generateBikeDescription(bike: Bike, ctx: DescriptionContext = DE
   if (colour) specs.push(`kleur ${lowerFirst(colour)}`);
   const size = n("frameSizeCm");
   if (size) specs.push(`framemaat ${size} cm`);
-  const wheel = n("wheelSizeCm");
+  const wheel = n("wheelSizeInches");
   if (wheel) specs.push(`${wheel} inch wielen`);
   const gears = n("gears");
   if (gears) specs.push(`${gears} versnellingen`);

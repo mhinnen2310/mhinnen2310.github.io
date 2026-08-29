@@ -1,11 +1,12 @@
 import { prisma } from "./prisma";
-import type { InvoiceStatus, Order } from "@prisma/client";
+import type { InvoiceStatus, Order, Prisma } from "@prisma/client";
 import { nextInvoiceNumberInTx } from "./numbers";
 import { getSettings } from "./settings";
 import { storage } from "./storage";
 import { formatPrice, formatDate } from "./utils";
 import { audit } from "./audit";
 import { emailInvoice } from "./email";
+import { createGuestInvoiceToken } from "./order-access";
 
 /**
  * Invoices (spec 24).
@@ -53,7 +54,19 @@ export interface InvoiceData {
   pdfKey: string | null;
 }
 
-function buildSnapshots(order: Order & { lines: { name: string; quantity: number; unitPriceCents: number; lineTotalCents: number; taxRate: number; taxCents: number; identifier: string | null }[] }) {
+export type OrderForInvoice = Order & {
+  lines: {
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    lineTotalCents: number;
+    taxRate: number;
+    taxCents: number;
+    identifier: string | null;
+  }[];
+};
+
+function buildSnapshots(order: OrderForInvoice) {
   const lines: InvoiceLineSnapshot[] = order.lines.map((l) => ({
     description: l.identifier ? `${l.name} (${l.identifier})` : l.name,
     quantity: l.quantity,
@@ -90,7 +103,7 @@ function buildSnapshots(order: Order & { lines: { name: string; quantity: number
   return { lines, customer, totals, tax };
 }
 
-async function companySnapshot() {
+export async function getInvoiceCompanySnapshot() {
   const s = await getSettings();
   return {
     name: s.companyName,
@@ -106,12 +119,47 @@ async function companySnapshot() {
 }
 
 /**
+ * Create (or return) the one normal invoice for an already-paid order inside
+ * the caller's transaction. The database-level issuedOrderKey makes this
+ * safe even if two workers race to issue the same invoice.
+ */
+export async function createIssuedInvoiceInTx(
+  tx: Prisma.TransactionClient,
+  order: OrderForInvoice,
+  company: Awaited<ReturnType<typeof getInvoiceCompanySnapshot>>,
+) {
+  const existing = await tx.invoice.findUnique({
+    where: { issuedOrderKey: order.id },
+    include: { order: true },
+  });
+  if (existing) return existing;
+
+  const { lines, customer, totals, tax } = buildSnapshots(order);
+  const invoiceNumber = await nextInvoiceNumberInTx(tx);
+  return tx.invoice.create({
+    data: {
+      invoiceNumber,
+      orderId: order.id,
+      issuedOrderKey: order.id,
+      status: "ISSUED",
+      customer: customer as object,
+      company: company as object,
+      lines: lines as object,
+      totals: totals as object,
+      tax: tax as object,
+      notes: "Factuur gegenereerd door Demi Fietsen webshop.",
+    },
+    include: { order: true },
+  });
+}
+
+/**
  * Issue the invoice for a PAID order (idempotent: returns the existing
  * ISSUED invoice when present).
  */
 export async function issueInvoice(orderId: string, actorId: string | null = null): Promise<InvoiceData> {
-  const existing = await prisma.invoice.findFirst({
-    where: { orderId, status: "ISSUED" },
+  const existing = await prisma.invoice.findUnique({
+    where: { issuedOrderKey: orderId },
     include: { order: true },
   });
   if (existing) {
@@ -127,32 +175,24 @@ export async function issueInvoice(orderId: string, actorId: string | null = nul
     throw new InvoiceError("Een factuur kan alleen worden geïssueerd op een betaalde bestelling.");
   }
 
-  const { lines, customer, totals, tax } = buildSnapshots(order);
-  const company = await companySnapshot();
-
-  const invoice = await prisma.$transaction(async (tx) => {
-    const invoiceNumber = await nextInvoiceNumberInTx(tx);
-    return tx.invoice.create({
-      data: {
-        invoiceNumber,
-        orderId: order.id,
-        status: "ISSUED",
-        customer: customer as object,
-        company: company as object,
-        lines: lines as object,
-        totals: totals as object,
-        tax: tax as object,
-        notes: "Factuur gegenereerd door Demi Fietsen webshop.",
-      },
+  const company = await getInvoiceCompanySnapshot();
+  let invoice;
+  try {
+    invoice = await prisma.$transaction((tx) => createIssuedInvoiceInTx(tx, order, company));
+  } catch (error) {
+    // The unique key is authoritative. A concurrent issuer can win after our
+    // initial read; return its immutable invoice rather than creating another.
+    if (!(typeof error === "object" && error !== null && "code" in error && error.code === "P2002")) throw error;
+    const concurrent = await prisma.invoice.findUnique({
+      where: { issuedOrderKey: orderId },
       include: { order: true },
     });
-  });
+    if (!concurrent) throw error;
+    invoice = concurrent;
+  }
 
   // PDF (best effort: invoice exists even if generation fails; can retry).
-  const pdfKey = await generateInvoicePdf(invoice).catch((err) => {
-    console.error(`invoice pdf failed for ${invoice.invoiceNumber}`, err);
-    return null;
-  });
+  const pdfKey = await ensureInvoicePdf(invoice.id);
 
   await audit("invoice.issued", "Invoice", invoice.id, { invoiceNumber: invoice.invoiceNumber }, null, actorId ? undefined : null);
 
@@ -166,7 +206,7 @@ export async function issueCreditNote(orderId: string, amountCents: number, reas
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: { lines: true } });
   if (!order) throw new InvoiceError("Bestelling niet gevonden.");
   const { lines, customer, totals, tax } = buildSnapshots(order);
-  const company = await companySnapshot();
+  const company = await getInvoiceCompanySnapshot();
 
   const credit = await prisma.$transaction(async (tx) => {
     const invoiceNumber = await nextInvoiceNumberInTx(tx);
@@ -314,6 +354,20 @@ async function generateInvoicePdf(invoice: {
   return key;
 }
 
+/** Generate a missing PDF after the immutable invoice row has committed. */
+export async function ensureInvoicePdf(invoiceId: string): Promise<string | null> {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { order: true },
+  });
+  if (!invoice) return null;
+  if (invoice.pdfKey) return invoice.pdfKey;
+  return generateInvoicePdf(invoice).catch((err) => {
+    console.error(`invoice pdf failed for ${invoice.invoiceNumber}`, err);
+    return null;
+  });
+}
+
 export async function getInvoicePdf(invoiceId: string): Promise<{ data: Buffer; invoiceNumber: string } | null> {
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
   if (!invoice?.pdfKey) return null;
@@ -330,7 +384,9 @@ export async function emailInvoiceForOrder(orderId: string, actorId: string | nu
     invoiceNumber: invoice.invoiceNumber,
     issuedAt: invoice.issuedAt,
     totalCents: Number((invoice.totals as Record<string, unknown>)?.totalCents ?? order.totalCents),
-    pdfUrl: `${envBaseUrl()}/api/invoices/${invoice.id}/pdf`,
+    pdfUrl: `${envBaseUrl()}/api/invoices/${invoice.id}/download?access=${encodeURIComponent(
+      createGuestInvoiceToken(order.orderNumber, order.customerEmail),
+    )}`,
   }).then(() => true).catch((err) => {
     console.error("emailInvoice failed", err);
     return false;

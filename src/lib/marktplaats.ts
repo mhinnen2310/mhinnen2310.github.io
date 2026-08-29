@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import type { Bike } from "@prisma/client";
-import { formatPrice } from "./utils";
+import { formatPrice, numericValue } from "./utils";
 import { FEATURE_CATALOG } from "./bikes";
 
 /**
@@ -75,7 +75,10 @@ function buildVars(bike: Bike): Record<string, string> {
     const v = b[k];
     return typeof v === "string" && v.trim() ? v : "";
   };
-  const num = (k: string): string => (typeof b[k] === "number" ? String(b[k]) : "");
+  const num = (k: string): string => {
+    const value = numericValue(b[k]);
+    return value == null ? "" : String(value);
+  };
 
   const batteryBits: string[] = [];
   if (num("batteryVoltage")) batteryBits.push(`${num("batteryVoltage")}V`);
@@ -94,7 +97,7 @@ function buildVars(bike: Bike): Record<string, string> {
   const specBits: string[] = [];
   const frameSize = num("frameSizeCm");
   if (frameSize) specBits.push(`Framemaat ${frameSize} cm`);
-  if (num("wheelSizeCm")) specBits.push(`${num("wheelSizeCm")} inch`);
+  if (num("wheelSizeInches")) specBits.push(`${num("wheelSizeInches")} inch`);
   if (num("gears")) specBits.push(`${num("gears")} versnellingen`);
   if (num("assistanceLevels")) specBits.push(`${num("assistanceLevels")} ondersteuningsniveaus`);
   if (str("motorPosition")) specBits.push(`motor in de ${str("motorPosition")}`);

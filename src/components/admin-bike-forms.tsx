@@ -35,8 +35,6 @@ const statusOptions: Array<{ value: AdminBike["status"]; label: string }> = [
   { value: "WORKSHOP", label: "Werkplaats" },
   { value: "READY", label: "Klaar" },
   { value: "AVAILABLE", label: "Beschikbaar (publiceren)" },
-  { value: "RESERVED", label: "Gereserveerd" },
-  { value: "SOLD", label: "Verkocht" },
   { value: "ARCHIVED", label: "Gearchiveerd" },
 ];
 
@@ -345,6 +343,11 @@ export function AdminBikeEditor({ bike }: { bike: AdminBike }) {
           <label className="text-sm text-ink-soft">
             Status
             <select name="status" defaultValue={bike.status} className="mt-1 block rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink">
+              {!statusOptions.some((option) => option.value === bike.status) && (
+                <option value={bike.status} disabled>
+                  {bike.status === "SOLD" ? "Verkocht (via verkoopdossier)" : "Gereserveerd (via reserveringslifecycle)"}
+                </option>
+              )}
               {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>

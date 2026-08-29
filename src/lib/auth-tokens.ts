@@ -43,9 +43,11 @@ export async function consumeAuthToken(
     where: { tokenHash, purpose, consumedAt: null, expiresAt: { gt: now } },
   });
   if (!record) return null;
-  await prisma.authToken.update({
-    where: { id: record.id },
+  // Claim in the UPDATE predicate itself. Two concurrent reset/verify
+  // requests can both read the token, but only one may consume it.
+  const claimed = await prisma.authToken.updateMany({
+    where: { id: record.id, consumedAt: null, expiresAt: { gt: now } },
     data: { consumedAt: now },
   });
-  return record.userId;
+  return claimed.count === 1 ? record.userId : null;
 }

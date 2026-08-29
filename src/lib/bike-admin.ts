@@ -2,7 +2,6 @@ import { prisma } from "./prisma";
 import type { Bike, BikeStatus } from "@prisma/client";
 import { canTransition } from "./bikes";
 import { generateBikeDescription, defaultDescriptionContext } from "./descriptions";
-import { getWarrantyScopes, addMonths } from "./warranty";
 import { audit } from "./audit";
 import type { SessionUser } from "./auth";
 import { env } from "./env";
@@ -10,9 +9,9 @@ import { env } from "./env";
 /**
  * Admin operations on unique bikes (specs 7, 8, 46, 47).
  *
- * Every state change validates the lifecycle transition table and records
- * an audit entry. Financial/order-integrity actions (mark sold, reserve)
- * require the UI to confirm; here we only enforce the invariants.
+ * Generic admin status changes deliberately exclude reservation and sale
+ * lifecycle transitions. A physical bike may become SOLD only from the
+ * central order sale-completion flow in orders.ts.
  */
 
 export class BikeAdminError extends Error {
@@ -45,11 +44,17 @@ export async function setBikeStatus(
   bikeId: string,
   to: BikeStatus,
   actor: SessionUser | null,
-  opts?: { salePriceCents?: number | null; note?: string | null },
+  opts?: { note?: string | null },
 ): Promise<Bike> {
   const bike = await prisma.bike.findUnique({ where: { id: bikeId }, include: { images: true } });
   if (!bike) throw new BikeAdminError("Fiets niet gevonden.");
   if (bike.status === to) return bike;
+  if (to === "SOLD") {
+    throw new BikeAdminError("Een fiets kan alleen via de centrale verkoopafronding als verkocht worden gemarkeerd.");
+  }
+  if (to === "RESERVED" || bike.status === "RESERVED") {
+    throw new BikeAdminError("Reserveringen verlopen uitsluitend via de reserveringslifecycle.");
+  }
   if (!canTransition(bike.status, to)) {
     throw new BikeAdminError(`Statuswijziging ${bike.status} -> ${to} is niet toegestaan.`);
   }
@@ -68,36 +73,12 @@ export async function setBikeStatus(
     }
   }
 
-  if (to === "SOLD") {
-    data.soldAt = new Date();
-    const salePrice = opts?.salePriceCents ?? bike.priceCents;
-    if (salePrice == null || salePrice <= 0) {
-      throw new BikeAdminError("Voor verkochte fiets is een verkoopprijs verplicht.");
-    }
-    data.realisedSalePriceCents = salePrice;
-    const scopes = await getWarrantyScopes();
-    if (scopes.length) {
-      const start = new Date();
-      const end = addMonths(start, Math.max(...scopes.map((s) => s.months)));
-      data.warrantyStart = start;
-      data.warrantyEnd = end;
-    }
-  }
-
-  if (to === "AVAILABLE" && bike.status === "RESERVED") {
-    // release any active reservation of this bike
-    await prisma.reservation.updateMany({
-      where: { bikeId: bike.id, status: "ACTIVE" },
-      data: { status: "RELEASED" },
-    });
-  }
-
   const updated = await prisma.bike.update({ where: { id: bike.id }, data });
   await audit(
     `bike.status:${bike.status}->${to}`,
     "Bike",
     bike.id,
-    { inventoryCode: bike.inventoryCode, note: opts?.note ?? null, salePriceCents: opts?.salePriceCents ?? null },
+    { inventoryCode: bike.inventoryCode, note: opts?.note ?? null },
     actor,
   );
   return updated;
@@ -115,45 +96,63 @@ export interface ReserveInput {
 }
 
 export async function reserveBike(bikeId: string, input: ReserveInput, actor: SessionUser | null): Promise<void> {
-  const bike = await prisma.bike.findUnique({ where: { id: bikeId } });
-  if (!bike) throw new BikeAdminError("Fiets niet gevonden.");
-  if (bike.status !== "AVAILABLE" && bike.status !== "READY") {
-    throw new BikeAdminError("Alleen een beschikbare fiets kan gereserveerd worden.");
-  }
   const ttl = input.expiresInMinutes ?? 24 * 7; // manual holds: 7 days max
-  const updated = await prisma.bike.updateMany({
-    where: { id: bike.id, status: { in: ["AVAILABLE", "READY"] } },
-    data: { status: "RESERVED" },
-  });
-  if (updated.count !== 1) throw new BikeAdminError("Deze fiets kan niet gereserveerd worden (status wijzigde gelijktijdig).");
-  await prisma.reservation.create({
-    data: {
-      bikeId: bike.id,
-      source: input.source,
-      customerName: input.customerName ?? null,
-      customerEmail: input.customerEmail ?? null,
-      customerPhone: input.customerPhone ?? null,
-      note: input.note ?? null,
-      expiresAt: new Date(Date.now() + ttl * 60_000),
-      status: "ACTIVE",
-    },
-  });
-  await audit("bike.reserved", "Bike", bike.id, { source: input.source }, actor);
+  if (!Number.isSafeInteger(ttl) || ttl < 1 || ttl > 24 * 7) {
+    throw new BikeAdminError("Een handmatige reservering moet tussen 1 minuut en 7 dagen duren.");
+  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.bike.updateMany({
+        where: { id: bikeId, status: { in: ["AVAILABLE", "READY"] } },
+        data: { status: "RESERVED" },
+      });
+      if (updated.count !== 1) {
+        throw new BikeAdminError("Deze fiets kan niet gereserveerd worden (status wijzigde gelijktijdig of de fiets bestaat niet).");
+      }
+      await tx.reservation.create({
+        data: {
+          bikeId,
+          source: input.source,
+          customerName: input.customerName ?? null,
+          customerEmail: input.customerEmail ?? null,
+          customerPhone: input.customerPhone ?? null,
+          note: input.note ?? null,
+          expiresAt: new Date(Date.now() + ttl * 60_000),
+          status: "ACTIVE",
+        },
+      });
+    });
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+      throw new BikeAdminError("Deze fiets heeft al een actieve reservering.");
+    }
+    throw error;
+  }
+  await audit("bike.reserved", "Bike", bikeId, { source: input.source }, actor);
 }
 
 export async function unreserveBike(bikeId: string, actor: SessionUser | null, to: "AVAILABLE" | "READY" = "AVAILABLE"): Promise<void> {
-  const bike = await prisma.bike.findUnique({ where: { id: bikeId } });
-  if (!bike) throw new BikeAdminError("Fiets niet gevonden.");
-  if (bike.status !== "RESERVED") throw new BikeAdminError("Deze fiets is niet gereserveerd.");
-  await prisma.bike.updateMany({
-    where: { id: bike.id, status: "RESERVED" },
-    data: { status: to },
+  await prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findFirst({
+      where: { bikeId, status: "ACTIVE" },
+      select: { id: true, source: true, orderId: true },
+    });
+    if (!reservation) throw new BikeAdminError("Deze fiets heeft geen actieve reservering.");
+    if (reservation.orderId || reservation.source === "CHECKOUT") {
+      throw new BikeAdminError("Een checkout-reservering kan alleen via de order-/betalingslifecycle worden vrijgegeven.");
+    }
+    const released = await tx.reservation.updateMany({
+      where: { id: reservation.id, status: "ACTIVE", orderId: null },
+      data: { status: "RELEASED" },
+    });
+    if (released.count !== 1) throw new BikeAdminError("De reservering wijzigde gelijktijdig.");
+    const updated = await tx.bike.updateMany({
+      where: { id: bikeId, status: "RESERVED", reservations: { none: { status: "ACTIVE" } } },
+      data: { status: to },
+    });
+    if (updated.count !== 1) throw new BikeAdminError("De fiets kan niet veilig worden vrijgegeven.");
   });
-  await prisma.reservation.updateMany({
-    where: { bikeId: bike.id, status: "ACTIVE", orderId: null },
-    data: { status: "RELEASED" },
-  });
-  await audit(`bike.unreserved:${to}`, "Bike", bike.id, null, actor);
+  await audit(`bike.unreserved:${to}`, "Bike", bikeId, null, actor);
 }
 
 // --- Workshop tasks ---------------------------------------------------------------
@@ -216,18 +215,44 @@ export async function updateBike(
   if (!bike) throw new BikeAdminError("Fiets niet gevonden.");
 
   const data: Record<string, unknown> = { ...input };
+  const protectedFields = new Set([
+    "status",
+    "soldAt",
+    "soldOrderNumber",
+    "warrantyStart",
+    "warrantyEnd",
+    "realisedSalePriceCents",
+  ]);
+  const attemptedProtectedField = Object.keys(data).find((field) => protectedFields.has(field));
+  if (attemptedProtectedField) {
+    throw new BikeAdminError(`${attemptedProtectedField} wordt uitsluitend door de centrale lifecycle beheerd.`);
+  }
 
   // Price history (spec 47): track asking-price changes without overwriting history.
   const newPrice = typeof data.priceCents === "number" ? data.priceCents : undefined;
+  if (newPrice != null && (!Number.isSafeInteger(newPrice) || newPrice < 0)) {
+    throw new BikeAdminError("De vraagprijs moet een niet-negatief geheel bedrag in centen zijn.");
+  }
   if (newPrice != null && newPrice !== bike.priceCents) {
-    await prisma.priceHistoryEntry.create({
-      data: {
-        bikeId,
-        oldPriceCents: bike.priceCents,
-        newPriceCents: newPrice,
-        changedBy: actor?.id ?? null,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.priceHistoryEntry.create({
+        data: {
+          bikeId,
+          oldPriceCents: bike.priceCents,
+          newPriceCents: newPrice,
+          changedBy: actor?.id ?? null,
+        },
+      });
+      return tx.bike.update({ where: { id: bike.id }, data });
     });
+    await audit(
+      "bike.updated",
+      "Bike",
+      bike.id,
+      { fields: Object.keys(input), priceChanged: true },
+      actor,
+    );
+    return updated as Bike;
   }
 
   const updated = (await prisma.bike.update({ where: { id: bike.id }, data })) as Bike;
@@ -256,7 +281,7 @@ export const COPYABLE_SPEC_FIELDS = [
   "genderStyle",
   "colour",
   "frameSizeCm",
-  "wheelSizeCm",
+  "wheelSizeInches",
   "gears",
   "assistanceLevels",
   "brakeInfo",

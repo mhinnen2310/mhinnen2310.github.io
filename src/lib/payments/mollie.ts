@@ -26,6 +26,7 @@ export class MollieProvider implements PaymentProvider {
         amount: { value: string; currency: string };
         status: string;
         datePaid?: string | null;
+        metadata?: unknown;
       }>;
     };
     paymentRefunds: {
@@ -57,7 +58,7 @@ export class MollieProvider implements PaymentProvider {
       redirectUrl: args.redirectUrl,
       cancelUrl: args.cancelUrl,
       webhookUrl: args.webhookUrl,
-      metadata: { orderId: args.orderId, orderNumber: args.orderNumber },
+      metadata: { orderId: args.orderId, orderNumber: args.orderNumber, ...(args.metadata ?? {}) },
     });
     return {
       providerPaymentId: payment.id,
@@ -68,7 +69,7 @@ export class MollieProvider implements PaymentProvider {
     };
   }
 
-  async interpretWebhook(payload: unknown): Promise<{ providerPaymentId: string } & VerifiedPaymentState> {
+  async interpretWebhook(payload: unknown): Promise<{ providerPaymentId: string; metadata?: Record<string, unknown> } & VerifiedPaymentState> {
     if (
       typeof payload !== "object" ||
       payload === null ||
@@ -83,6 +84,10 @@ export class MollieProvider implements PaymentProvider {
     // state is trusted (amount, status, datePaid).
     const client = this.getClient();
     const payment = await client.payments.get(candidateId);
+    const metadata =
+      typeof payment.metadata === "object" && payment.metadata !== null && !Array.isArray(payment.metadata)
+        ? payment.metadata as Record<string, unknown>
+        : undefined;
 
     const amountCents = Math.round(parseFloat(payment.amount.value) * 100);
     switch (payment.status) {
@@ -94,15 +99,16 @@ export class MollieProvider implements PaymentProvider {
           paidAt: payment.datePaid ? new Date(payment.datePaid) : null,
           amountCents,
           currency: payment.amount.currency,
+          metadata,
         };
       case "canceled":
-        return { providerPaymentId: payment.id, state: "canceled" };
+        return { providerPaymentId: payment.id, state: "canceled", metadata };
       case "expired":
-        return { providerPaymentId: payment.id, state: "expired" };
+        return { providerPaymentId: payment.id, state: "expired", metadata };
       case "failed":
-        return { providerPaymentId: payment.id, state: "failed" };
+        return { providerPaymentId: payment.id, state: "failed", metadata };
       default:
-        return { providerPaymentId: payment.id, state: "open" };
+        return { providerPaymentId: payment.id, state: "open", metadata };
     }
   }
 

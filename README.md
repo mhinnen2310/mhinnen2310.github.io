@@ -4,7 +4,7 @@ Next.js/TypeScript webshop for unique used e-bikes and stocked accessories. It u
 
 ## Local development
 
-1. Copy `.env.example` to `.env` and fill in the database URL and a local `AUTH_SECRET`.
+1. Copy `.env.example` to `.env` and fill in `DATABASE_URL`, `DIRECT_URL` and a local `AUTH_SECRET`.
 2. Run `npm run db:deploy` to apply migrations.
 3. Run `npm run dev`.
 
@@ -28,7 +28,7 @@ The application rejects checkout in production unless these are explicitly confi
 - `PAYMENT_PROVIDER=mollie` with a live `MOLLIE_API_KEY`;
 - public HTTPS `NEXT_PUBLIC_SITE_URL` and `APP_BASE_URL` values;
 - SMTP (`EMAIL_TRANSPORT=smtp`, `SMTP_URL`, and `EMAIL_FROM`);
-- a strong `AUTH_SECRET` and separate `CRON_SECRET`.
+- a strong `AUTH_SECRET`, separate `IP_HASH_SECRET`, and separate `CRON_SECRET`.
 
 Schedule `GET` or `POST /api/maintenance/sweep` every five minutes with either `Authorization: Bearer <CRON_SECRET>` or `x-cron-secret: <CRON_SECRET>`. The endpoint expires abandoned checkouts, releases bike reservations and restores accessory stock. Catalogue and checkout requests also run a bounded fallback sweep.
 

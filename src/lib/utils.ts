@@ -77,10 +77,35 @@ export function toDatetimeLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function hashIp(ip: string | null | undefined): string | null {
-  if (!ip) return null;
-  // One-way, salted per app — used only for abuse heuristics, not identification.
-  return `ip-${Buffer.from(`demifietsen:${ip}`).toString("base64")}`.slice(0, 48);
+/** Safely turn a Prisma Decimal (or a normal numeric value) into a number. */
+export function numericValue(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (typeof value === "object" && value !== null && "toNumber" in value) {
+    const toNumber = (value as { toNumber?: unknown }).toNumber;
+    if (typeof toNumber === "function") {
+      const parsed = toNumber.call(value);
+      return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Privacy-preserving IP fingerprint for abuse controls. Unlike the previous
+ * Base64 encoding this is non-reversible without the deployment secret.
+ */
+export function hashIp(
+  ip: string | null | undefined,
+  secret: string | null | undefined = process.env.IP_HASH_SECRET ?? process.env.AUTH_SECRET,
+): string | null {
+  const normalized = ip?.trim();
+  if (!normalized || !secret) return null;
+  const { createHmac } = require("crypto") as typeof import("crypto");
+  return `ip-hmac-v1-${createHmac("sha256", secret).update(normalized).digest("hex")}`;
 }
 
 export function sha256Hex(input: string): string {

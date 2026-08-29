@@ -124,7 +124,7 @@ export function CatalogFilterPanel({
       {group("merk", "Merk", options.merken.map((m) => ({ value: m, label: m })), active.merk)}
       {group("type", "Type fiets", options.types.map((t) => ({ value: t, label: capitalize(t) })), active.type)}
       {group("frame", "Framemaat (cm)", options.frames.map((f) => ({ value: String(f), label: `${f} cm` })), active.frame)}
-      {group("wiel", "Wielmaat (cm)", options.wielen.map((w) => ({ value: String(w), label: `${w} cm` })), active.wiel)}
+      {group("wiel", "Wielmaat (inch)", options.wielen.map((w) => ({ value: String(w), label: `${w}"` })), active.wiel)}
       {group("motor", "Motorpositie", options.motoren.map((m) => ({ value: m, label: capitalize(m) })), active.motor)}
       {group("conditie", "Conditie", options.condities.map((c) => ({ value: c, label: c })), active.conditie)}
 

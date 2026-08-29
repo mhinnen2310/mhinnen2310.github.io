@@ -49,14 +49,14 @@ export class MockProvider implements PaymentProvider {
     // its own ledger instead.)
     const payment = await prisma.payment.findUnique({
       where: { providerPaymentId: p.paymentId },
-      include: { order: true },
     });
     if (!payment) {
       throw new MockWebhookError("Onbekende betaling");
     }
-    if (payment.order.paymentStatus !== "PENDING") {
-      throw new MockWebhookError(`Betaling kan niet meer worden aangepast (order staat op ${payment.order.paymentStatus})`);
-    }
+    // Let the shared webhook ledger and central sale lifecycle decide whether
+    // this is a duplicate, an already-completed order or a late payment. A
+    // provider notification may legitimately be retried after the order was
+    // committed; rejecting it here made the mock differ from Mollie.
 
     switch (p.status) {
       case "paid":

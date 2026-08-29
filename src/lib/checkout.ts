@@ -4,37 +4,23 @@ import { getCartByToken, quoteCart, clearCart } from "./cart";
 import { DeliveryError, getDeliveryConfig, quoteDelivery } from "./delivery";
 import { getTaxConfig, taxRateForLine, lineTax } from "./tax";
 import { nextOrderNumberInTx } from "./numbers";
-import { markOrderPaid, markOrderUnpaid, sweepExpiredOrders } from "./orders";
+import { completeVerifiedPaymentSale, recordPaymentFailure, sweepExpiredOrders } from "./orders";
+import { checkoutReservationRows, uniqueBikeLinesForOrder, OrderLifecycleIntegrityError } from "./order-lifecycle";
 import { getPaymentProvider } from "./payments";
 import { audit } from "./audit";
 import { trackEvent } from "./analytics";
 import { emailOrderConfirmation } from "./email";
+import { emailInvoiceForOrder } from "./invoices";
 import { sha256Hex } from "./utils";
 import { createPaymentStatusToken } from "./order-access";
 
 /**
- * Checkout engine (specs 13, 14, 15, 37 — and Invariants 2, 3, 5, 9).
+ * Checkout engine.
  *
- * Flow:
- *  1. Quote the cart server-side (prices always from DB, never from client).
- *  2. Quote delivery server-side (costs from admin config).
- *  3. In ONE interactive transaction:
- *       - issue the order number (atomic counter)
- *       - create the Order + immutable OrderLine snapshots
- *       - for each bike line: guarded AVAILABLE -> RESERVED update;
- *         if the row was not in AVAILABLE state the update touches 0 rows
- *         and the WHOLE transaction rolls back (Invariant 3 — two customers
- *         can never both buy the same physical bike)
- *       - for each product line: re-check stock under the transaction and
- *         decrement atomically
- *       - record the checkout reservation (TTL)
- *  4. After commit: create the provider payment and store its reference.
- *     If the provider call fails, the order is cancelled and resources
- *     released (reservation expired, stock restored).
- *
- * Webhook pipeline (Invariant 9): payment state is only ever applied from
- * verified provider state (Mollie: re-fetched over the API; mock: ledger
- * check), deduplicated via the WebhookEvent ledger.
+ * Prices and total are quoted server-side. In the checkout transaction every
+ * physical bike obtains its own ACTIVE reservation row and every product is
+ * decremented conditionally. The payment row is created before calling the
+ * provider, so both success and failure have one durable lifecycle target.
  */
 
 export class CheckoutError extends Error {
@@ -82,17 +68,31 @@ export interface CheckoutInput {
   internalNotes?: string | null;
 }
 
-export async function createCheckout(input: CheckoutInput): Promise<CreateCheckoutResult> {
-  // Validate production configuration before creating any order or reserving
-  // stock. A configuration error must never leave a pending order behind.
-  const provider = getPaymentProvider();
+interface CheckoutLine {
+  kind: "UNIQUE_BIKE" | "STOCK_ITEM";
+  bikeId: string | null;
+  productId: string | null;
+  name: string;
+  identifier: string | null;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+  taxRate: number;
+  taxCents: number;
+  imageKey: string | null;
+  specs: object | null;
+}
 
-  // Keep availability truthful even when the scheduled sweep was delayed.
+function paymentMethodFor(provider: "mollie" | "mock") {
+  return provider === "mollie" ? "MOLLIE" as const : "MOCK" as const;
+}
+
+export async function createCheckout(input: CheckoutInput): Promise<CreateCheckoutResult> {
+  const provider = getPaymentProvider();
   await sweepExpiredOrders();
 
   const cart = await getCartByToken(input.cartToken);
   if (!cart) throw new CheckoutError("Je winkelwagen is leeg of is verlopen.", "CART_EMPTY");
-
   const quote = await quoteCart(cart.id);
   if (quote.lines.length === 0) throw new CheckoutError("Je winkelwagen is leeg.", "CART_EMPTY");
   if (!quote.allValid) {
@@ -100,7 +100,7 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
   }
 
   const deliveryConfig = await getDeliveryConfig();
-  const cartKinds = new Set(quote.lines.map((l) => l.kind));
+  const cartKinds = new Set(quote.lines.map((line) => line.kind));
   let deliveryQuote;
   try {
     deliveryQuote = quoteDelivery(
@@ -110,9 +110,9 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
       quote.subtotalCents,
       input.delivery.postcode,
     );
-  } catch (err) {
-    if (err instanceof DeliveryError) throw new CheckoutError(err.message, "DELIVERY");
-    throw err;
+  } catch (error) {
+    if (error instanceof DeliveryError) throw new CheckoutError(error.message, "DELIVERY");
+    throw error;
   }
   if (
     deliveryQuote.requiresAddress &&
@@ -122,13 +122,8 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
   }
 
   const taxConfig = await getTaxConfig();
-
-  // Immutable spec snapshots (Invariant 8: orders keep their data even if
-  // the bike/product changes later).
-  const [bikeIds, productIds] = [
-    quote.lines.filter((l) => l.kind === "UNIQUE_BIKE").map((l) => l.refId),
-    quote.lines.filter((l) => l.kind === "STOCK_ITEM").map((l) => l.refId),
-  ];
+  const bikeIds = quote.lines.filter((line) => line.kind === "UNIQUE_BIKE").map((line) => line.refId);
+  const productIds = quote.lines.filter((line) => line.kind === "STOCK_ITEM").map((line) => line.refId);
   const [bikes, products] = await Promise.all([
     bikeIds.length
       ? prisma.bike.findMany({
@@ -139,7 +134,7 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
             brand: true,
             model: true,
             frameSizeCm: true,
-            wheelSizeCm: true,
+            wheelSizeInches: true,
             gears: true,
             batteryWh: true,
             batteryAh: true,
@@ -156,43 +151,51 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
         })
       : Promise.resolve([]),
   ]);
-  const bikeSpecs = new Map(bikes.map((b) => [b.id, b]));
-  const productSpecs = new Map(products.map((p) => [p.id, p]));
+  const bikeSpecs = new Map(bikes.map((bike) => [bike.id, bike]));
+  const productSpecs = new Map(products.map((product) => [product.id, product]));
 
-  // ---- Totals (all server-side) -------------------------------------------
-  const lines = quote.lines.map((l) => {
-    const rate = taxRateForLine(taxConfig, l.kind);
-    const lt = lineTax(l.lineTotalCents, rate, taxConfig.basis);
+  const lines: CheckoutLine[] = quote.lines.map((line) => {
+    const rate = taxRateForLine(taxConfig, line.kind);
+    const tax = lineTax(line.lineTotalCents, rate, taxConfig.basis);
     return {
-      kind: l.kind,
-      bikeId: l.kind === "UNIQUE_BIKE" ? l.refId : null,
-      productId: l.kind === "STOCK_ITEM" ? l.refId : null,
-      name: l.name,
-      identifier: l.identifier,
-      unitPriceCents: l.unitPriceCents,
-      quantity: l.quantity,
-      lineTotalCents: l.lineTotalCents,
-      taxRate: lt.rate,
-      taxCents: lt.taxCents,
-      imageKey: l.imageKey,
-      specs: l.kind === "UNIQUE_BIKE" ? (bikeSpecs.get(l.refId) ?? null) : (productSpecs.get(l.refId) ?? null),
+      kind: line.kind,
+      bikeId: line.kind === "UNIQUE_BIKE" ? line.refId : null,
+      productId: line.kind === "STOCK_ITEM" ? line.refId : null,
+      name: line.name,
+      identifier: line.identifier,
+      unitPriceCents: line.unitPriceCents,
+      quantity: line.quantity,
+      lineTotalCents: line.lineTotalCents,
+      taxRate: tax.rate,
+      taxCents: tax.taxCents,
+      imageKey: line.imageKey,
+      specs: line.kind === "UNIQUE_BIKE" ? (bikeSpecs.get(line.refId) ?? null) : (productSpecs.get(line.refId) ?? null),
     };
   });
 
+  let bikeLines: CheckoutLine[];
+  try {
+    bikeLines = uniqueBikeLinesForOrder(lines);
+  } catch (error) {
+    throw new CheckoutError(
+      error instanceof OrderLifecycleIntegrityError ? error.message : "De fietsregels in je winkelwagen zijn ongeldig.",
+      "CART_INVALID",
+    );
+  }
+  const productLines = lines
+    .filter((line) => line.kind === "STOCK_ITEM" && line.productId)
+    .sort((a, b) => a.productId!.localeCompare(b.productId!));
   const subtotalCents = quote.subtotalCents;
-  const taxTotalCents = lines.reduce((s, l) => s + l.taxCents, 0);
+  const taxTotalCents = lines.reduce((total, line) => total + line.taxCents, 0);
   const totalCents = subtotalCents + deliveryQuote.costCents + (taxConfig.basis === "excl" ? taxTotalCents : 0);
+  if (!Number.isSafeInteger(totalCents) || totalCents <= 0) {
+    throw new CheckoutError("Totaalbedrag ongeldig.", "CART_INVALID");
+  }
 
-  if (totalCents <= 0) throw new CheckoutError("Totaalbedrag ongeldig.", "CART_INVALID");
-
-  // ---- Atomic order creation ---------------------------------------------
-  const ttlMinutes = env.reservationTtlMinutes;
-  const reservationExpiry = new Date(Date.now() + ttlMinutes * 60_000);
-
-  const order = await prisma.$transaction(async (tx) => {
+  const reservationExpiry = new Date(Date.now() + env.reservationTtlMinutes * 60_000);
+  const checkout = await prisma.$transaction(async (tx) => {
     const orderNumber = await nextOrderNumberInTx(tx);
-
-    const created = await tx.order.create({
+    const order = await tx.order.create({
       data: {
         orderNumber,
         userId: input.userId,
@@ -224,93 +227,95 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
         },
         internalNotes: input.internalNotes ?? undefined,
         lines: {
-          create: lines.map((l) => ({
-            kind: l.kind,
-            bikeId: l.bikeId,
-            productId: l.productId,
-            name: l.name,
-            identifier: l.identifier,
-            unitPriceCents: l.unitPriceCents,
-            quantity: l.quantity,
-            lineTotalCents: l.lineTotalCents,
-            taxRate: l.taxRate,
-            taxCents: l.taxCents,
-            specs: l.specs == null ? undefined : (l.specs as object),
-            imageKey: l.imageKey,
+          create: lines.map((line) => ({
+            kind: line.kind,
+            bikeId: line.bikeId,
+            productId: line.productId,
+            name: line.name,
+            identifier: line.identifier,
+            unitPriceCents: line.unitPriceCents,
+            quantity: line.quantity,
+            lineTotalCents: line.lineTotalCents,
+            taxRate: line.taxRate,
+            taxCents: line.taxCents,
+            specs: line.specs ?? undefined,
+            imageKey: line.imageKey,
           })),
         },
       },
     });
 
-    // --- UNIQUE_BIKE: guarded AVAILABLE -> RESERVED (the race guard) -------
-    for (const l of lines) {
-      if (l.kind !== "UNIQUE_BIKE" || !l.bikeId) continue;
-      const updated = await tx.bike.updateMany({
-        where: { id: l.bikeId, status: "AVAILABLE" },
+    // Stable ordering and price predicates protect both stock and a price
+    // change made after the quote was generated.
+    for (const line of bikeLines) {
+      const reserved = await tx.bike.updateMany({
+        where: { id: line.bikeId!, status: "AVAILABLE", priceCents: line.unitPriceCents },
         data: { status: "RESERVED" },
       });
-      if (updated.count !== 1) {
-        // Another checkout (or admin) won this bike. Roll everything back.
+      if (reserved.count !== 1) {
         throw new CheckoutError(
-          "Deze fiets is net niet meer beschikbaar. We hebben je niets in rekening gebracht.",
+          "Deze fiets is net niet meer beschikbaar of de prijs is gewijzigd. We hebben je niets in rekening gebracht.",
           "CART_INVALID",
         );
       }
     }
-
-    // --- STOCK_ITEM: re-check stock and decrement ---------------------------
-    for (const l of lines) {
-      if (l.kind !== "STOCK_ITEM" || !l.productId) continue;
-      // The stock condition lives in the UPDATE itself. A preceding read is
-      // not a lock under normal PostgreSQL isolation and could oversell when
-      // two customers check out at the same time.
+    for (const line of productLines) {
       const decremented = await tx.product.updateMany({
-        where: { id: l.productId, active: true, stockQuantity: { gte: l.quantity } },
-        data: { stockQuantity: { decrement: l.quantity } },
+        where: {
+          id: line.productId!,
+          active: true,
+          salePriceCents: line.unitPriceCents,
+          stockQuantity: { gte: line.quantity },
+        },
+        data: { stockQuantity: { decrement: line.quantity } },
       });
       if (decremented.count !== 1) {
-        throw new CheckoutError(
-          `Nog niet genoeg voorraad voor ${l.name}.`,
-          "CART_INVALID",
-        );
+        throw new CheckoutError(`Nog niet genoeg voorraad voor ${line.name}, of de prijs is gewijzigd.`, "CART_INVALID");
       }
       await tx.stockMovement.create({
-        data: {
-          productId: l.productId,
-          change: -l.quantity,
-          reason: "order",
-          reference: orderNumber,
-        },
+        data: { productId: line.productId!, change: -line.quantity, reason: "order", reference: orderNumber },
       });
     }
 
-    // --- Reservation record (checkout TTL) ----------------------------------
-    const bikeLine = lines.find((l) => l.kind === "UNIQUE_BIKE" && l.bikeId);
-    if (bikeLine && bikeLine.bikeId) {
-      await tx.reservation.create({
-        data: {
-          bikeId: bikeLine.bikeId,
-          source: "CHECKOUT",
-          orderId: created.id,
-          customerName: input.customer.name,
-          customerEmail: input.customer.email,
-          expiresAt: reservationExpiry,
-          status: "ACTIVE",
-        },
-      });
-    }
+    const reservations = checkoutReservationRows(
+      order.id,
+      lines,
+      { name: input.customer.name, email: input.customer.email },
+      reservationExpiry,
+    );
+    if (reservations.length) await tx.reservation.createMany({ data: reservations });
 
-    return created;
+    // Persist a local payment intent before an external call. A failure can now
+    // always find and release the exact order resources it owns.
+    const payment = await tx.payment.create({
+      data: {
+        orderId: order.id,
+        provider: provider.name,
+        method: paymentMethodFor(provider.name),
+        amountCents: totalCents,
+        currency: "EUR",
+        status: "creating",
+        description: `Bestelling ${orderNumber}`,
+        metadata: { orderNumber, basis: taxConfig.basis },
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        action: "checkout.resources_reserved",
+        entityType: "Order",
+        entityId: order.id,
+        meta: { orderNumber, bikeCount: reservations.length, stockLineCount: productLines.length, totalCents },
+        actorType: "SYSTEM",
+      },
+    });
+    return { order, payment };
   });
 
-  // ---- Provider payment (after commit; failure -> release) ----------------
-  const baseUrl = env.baseUrl;
+  const { order, payment } = checkout;
   const statusToken = createPaymentStatusToken(order.orderNumber);
-  const resultUrl = `${baseUrl}/betaaling/resultaat?order=${encodeURIComponent(order.orderNumber)}&token=${encodeURIComponent(statusToken)}`;
-  let providerPaymentId: string | null = null;
+  const resultUrl = `${env.baseUrl}/betaaling/resultaat?order=${encodeURIComponent(order.orderNumber)}&token=${encodeURIComponent(statusToken)}`;
   let paymentUrl: string | null = null;
-  let providerStatus = "PENDING";
-
+  let externalPaymentId: string | null = null;
   try {
     const intent = await provider.createPayment({
       orderId: order.id,
@@ -318,54 +323,71 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
       description: `Demi Fietsen — bestelling ${order.orderNumber}`,
       amountCents: totalCents,
       currency: "EUR",
-      webhookUrl: `${baseUrl}/api/webhooks/${provider.name}`,
+      webhookUrl: `${env.baseUrl}/api/webhooks/${provider.name}`,
       redirectUrl: resultUrl,
       cancelUrl: `${resultUrl}&status=geannuleerd`,
-      metadata: { orderNumber: order.orderNumber },
+      metadata: { orderNumber: order.orderNumber, paymentId: payment.id },
     });
-    providerPaymentId = intent.providerPaymentId;
+    if (
+      !intent.providerPaymentId ||
+      intent.amountCents !== totalCents ||
+      intent.currency.toUpperCase() !== "EUR"
+    ) {
+      throw new Error("De betaalprovider gaf geen geldig bedrag, valuta of betalingskenmerk terug.");
+    }
+    externalPaymentId = intent.providerPaymentId;
     paymentUrl = intent.paymentUrl;
-    providerStatus = intent.status;
-  } catch (err) {
-    // Payment could not be created: cancel order, release bike/stock.
-    await markOrderUnpaid(order.id, "FAILED", err instanceof Error ? err.message : "Betaling kon niet worden aangemaakt");
+    const bound = await prisma.payment.updateMany({
+      where: { id: payment.id, orderId: order.id, status: "creating" },
+      data: {
+        providerPaymentId: intent.providerPaymentId,
+        paymentUrl,
+        status: intent.status,
+        metadata: { orderNumber: order.orderNumber, paymentId: payment.id, basis: taxConfig.basis },
+      },
+    });
+    if (bound.count !== 1) throw new Error("Lokale betaalintentie kon niet veilig aan de providerbetaling worden gekoppeld.");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Betaling kon niet worden aangemaakt";
+    if (!externalPaymentId) {
+      // No provider reference was returned, so this is an actual creation
+      // failure and resources can be released immediately.
+      await recordPaymentFailure(payment.id, "FAILED", "creation_failed", reason).catch((releaseError) => {
+        console.error("checkout payment failure release failed", releaseError);
+      });
+    } else {
+      // A timeout after the provider accepted a request is ambiguous. Do not
+      // release stock and risk selling the bike twice. Mollie's authenticated
+      // metadata lets its webhook recover this binding; the normal TTL sweep
+      // remains the hard upper bound if no payment is ever completed.
+      await prisma.payment.updateMany({
+        where: { id: payment.id, providerPaymentId: null, status: "creating" },
+        data: {
+          status: "provider_binding_pending",
+          metadata: {
+            orderNumber: order.orderNumber,
+            paymentId: payment.id,
+            pendingProviderPaymentId: externalPaymentId,
+            basis: taxConfig.basis,
+          },
+        },
+      }).catch((bindingError) => console.error("payment binding recovery marker failed", bindingError));
+    }
     throw new CheckoutError("De betaling kon niet worden aangemaakt. Je bent niets verschuldigd.", "PROVIDER");
   }
 
-  await prisma.payment.create({
-    data: {
-      orderId: order.id,
-      provider: provider.name,
-      providerPaymentId,
-      amountCents: totalCents,
-      currency: "EUR",
-      status: providerStatus,
-      description: `Bestelling ${order.orderNumber}`,
-      paymentUrl,
-      metadata: { orderNumber: order.orderNumber, basis: taxConfig.basis },
-    },
-  });
-
-  // Clear the cart only after a payment session exists (the reservation
-  // keeps the bike safe even if the customer abandons the payment page).
   await clearCart(cart.id);
-
-  await trackEvent("checkout_started", "order", order.orderNumber, {
-    lines: lines.length,
-    totalCents,
-  });
-
-  // Confirmation email (best effort; the webhook sends the paid confirmation).
+  await trackEvent("checkout_started", "order", order.orderNumber, { lines: lines.length, totalCents });
   await emailOrderConfirmation({
     orderNumber: order.orderNumber,
     email: input.customer.email,
     name: input.customer.name,
     totalCents,
-    lines: lines.map((l) => ({ name: l.name, quantity: l.quantity })),
+    lines: lines.map((line) => ({ name: line.name, quantity: line.quantity })),
     paid: false,
     paymentUrl,
     deliveryMethodLabel: deliveryQuote.label,
-  }).catch((err) => console.error("emailOrderConfirmation failed", err));
+  }).catch((error) => console.error("emailOrderConfirmation failed", error));
 
   return {
     orderNumber: order.orderNumber,
@@ -379,7 +401,7 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
 }
 
 // ---------------------------------------------------------------------------
-// Webhook processing (idempotent, verified)
+// Webhook processing (verified and retry-safe)
 // ---------------------------------------------------------------------------
 
 export interface WebhookResult {
@@ -387,15 +409,6 @@ export interface WebhookResult {
   detail?: string;
 }
 
-/**
- * Entry point for provider webhook endpoints.
- *
- * - provider.interpretWebhook() performs the identity verification
- *   (Mollie: re-fetch over API; mock: ledger check) and returns ONLY
- *   verified state.
- * - WebhookEvent ledger dedupes repeated deliveries.
- * - markOrderPaid / markOrderUnpaid are themselves idempotent.
- */
 export async function processProviderWebhook(
   providerName: "mollie" | "mock",
   rawPayload: unknown,
@@ -411,115 +424,146 @@ export async function processProviderWebhook(
     paidAt?: Date | null;
     amountCents?: number;
     currency?: string;
+    metadata?: Record<string, unknown>;
   };
   try {
     verified = await provider.interpretWebhook(rawPayload);
-  } catch (err) {
-    return {
-      outcome: "error",
-      detail: err instanceof Error ? err.message : "interpretWebhook failed",
-    };
+  } catch (error) {
+    return { outcome: "error", detail: error instanceof Error ? error.message : "interpretWebhook failed" };
   }
+  if (verified.state === "open") return { outcome: "ignored", detail: "payment still open" };
 
-  // Open notifications do not cause an order state change. They are useful to
-  // the provider but not durable business events, so do not fill the webhook
-  // ledger with them.
-  if (verified.state === "open") {
-    return { outcome: "ignored", detail: "payment still open" };
-  }
-
-  const payment = await prisma.payment.findUnique({
+  let payment = await prisma.payment.findUnique({
     where: { providerPaymentId: verified.providerPaymentId },
     include: { order: true },
   });
-  if (!payment || payment.provider !== providerName) {
-    return { outcome: "error", detail: "Onbekende betaling" };
+  const localPaymentId = verified.metadata?.paymentId;
+  if (!payment && typeof localPaymentId === "string" && providerName === "mollie") {
+    const recovered = await prisma.payment.updateMany({
+      where: {
+        id: localPaymentId,
+        provider: providerName,
+        providerPaymentId: null,
+        status: { in: ["creating", "provider_binding_pending"] },
+      },
+      data: {
+        providerPaymentId: verified.providerPaymentId,
+        status: "open",
+      },
+    });
+    if (recovered.count === 1) {
+      payment = await prisma.payment.findUnique({
+        where: { providerPaymentId: verified.providerPaymentId },
+        include: { order: true },
+      });
+      if (payment) {
+        await audit(
+          "payment.provider_binding_recovered",
+          "Payment",
+          payment.id,
+          { provider: providerName, providerPaymentId: verified.providerPaymentId },
+          null,
+        );
+      }
+    }
   }
+  if (!payment || payment.provider !== providerName) return { outcome: "error", detail: "Onbekende betaling" };
   if (
     (verified.amountCents != null && verified.amountCents !== payment.amountCents) ||
-    (verified.currency != null && verified.currency !== payment.currency)
+    (verified.currency != null && verified.currency.toUpperCase() !== payment.currency.toUpperCase())
   ) {
     return { outcome: "error", detail: "Betalingsbedrag of valuta komt niet overeen" };
   }
 
   const externalEventId = `${verified.providerPaymentId}:${verified.state}`;
-
-  // Dedupe BEFORE side effects; the unique constraint is the last line of
-  // defence against duplicate processing.
   const existing = await prisma.webhookEvent.findUnique({
     where: { provider_externalEventId: { provider: providerName, externalEventId } },
   });
   if (existing) {
-    return { outcome: "duplicate", detail: externalEventId };
-  }
-
-  try {
-    await prisma.webhookEvent.create({
-      data: {
+    const leaseCutoff = new Date(Date.now() - 60_000);
+    if (
+      existing.status === "PROCESSED" ||
+      existing.status === "DUPLICATE_IGNORED" ||
+      (existing.status === "PROCESSING" && existing.updatedAt >= leaseCutoff)
+    ) {
+      return { outcome: "duplicate", detail: externalEventId };
+    }
+    const reclaimed = await prisma.webhookEvent.updateMany({
+      where: {
         provider: providerName,
         externalEventId,
-        type: `payment.${verified.state}`,
-        payloadHash: hashPayload(rawPayload),
-        status: "RECEIVED",
+        OR: [
+          { status: "FAILED" },
+          { status: "RECEIVED" },
+          { status: "PROCESSING", updatedAt: { lt: leaseCutoff } },
+        ],
       },
+      data: { status: "PROCESSING", error: null, processedAt: null },
     });
-  } catch {
-    // P2002 unique violation -> concurrent duplicate.
-    return { outcome: "duplicate", detail: externalEventId };
+    if (reclaimed.count !== 1) return { outcome: "duplicate", detail: externalEventId };
+  } else {
+    try {
+      await prisma.webhookEvent.create({
+        data: {
+          provider: providerName,
+          externalEventId,
+          type: `payment.${verified.state}`,
+          payloadHash: hashPayload(rawPayload),
+          status: "PROCESSING",
+        },
+      });
+    } catch {
+      return { outcome: "duplicate", detail: externalEventId };
+    }
   }
 
   try {
+    let completion: Awaited<ReturnType<typeof completeVerifiedPaymentSale>> | null = null;
     if (verified.state === "paid") {
-      const changed = await markOrderPaid(payment.orderId, verified.paidAt ?? null);
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: "paid", capturedAt: verified.paidAt ?? new Date() },
-      });
-      if (changed) {
-        await trackEvent("purchase", "order", payment.order.orderNumber, {
-          totalCents: payment.order.totalCents,
+      completion = await completeVerifiedPaymentSale(payment.id, verified.paidAt ?? null);
+      if (completion.outcome === "completed") {
+        await trackEvent("purchase", "order", payment.order.orderNumber, { totalCents: payment.order.totalCents });
+        const lines = await prisma.orderLine.findMany({
+          where: { orderId: payment.orderId },
+          select: { name: true, quantity: true },
         });
         await emailOrderConfirmation({
           orderNumber: payment.order.orderNumber,
           email: payment.order.customerEmail,
           name: payment.order.customerName,
           totalCents: payment.order.totalCents,
-          lines: (
-            await prisma.orderLine.findMany({
-              where: { orderId: payment.orderId },
-              select: { name: true, quantity: true },
-            })
-          ).map((l) => ({ name: l.name, quantity: l.quantity })),
+          lines: lines.map((line) => ({ name: line.name, quantity: line.quantity })),
           paid: true,
           paymentUrl: null,
           deliveryMethodLabel: null,
-        }).catch((err) => console.error("paid email failed", err));
+        }).catch((error) => console.error("paid email failed", error));
+        await emailInvoiceForOrder(payment.orderId).catch((error) => {
+          console.error("paid invoice email failed", error);
+        });
       }
     } else {
       const status = verified.state === "canceled" ? "CANCELLED" : verified.state === "expired" ? "EXPIRED" : "FAILED";
-      await markOrderUnpaid(payment.orderId, status, `provider: ${verified.state}`);
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: verified.state },
-      });
+      await recordPaymentFailure(payment.id, status, verified.state, `provider: ${verified.state}`);
     }
 
     await prisma.webhookEvent.update({
       where: { provider_externalEventId: { provider: providerName, externalEventId } },
       data: { status: "PROCESSED", processedAt: new Date() },
     });
-
     await audit(
       "payment.webhook",
       "Payment",
       payment.id,
-      { state: verified.state, orderNumber: payment.order.orderNumber },
+      {
+        state: verified.state,
+        orderNumber: payment.order.orderNumber,
+        saleCompletion: completion?.outcome ?? null,
+      },
       null,
     );
-
-    return { outcome: "processed" };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    return { outcome: "processed", detail: completion?.outcome };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     await markEventFailed(providerName, externalEventId, message);
     return { outcome: "error", detail: message };
   }
@@ -532,7 +576,8 @@ async function markEventFailed(provider: string, externalEventId: string, error:
       data: { status: "FAILED", error },
     });
   } catch {
-    /* ignore */
+    // The provider can redeliver; preserving the primary transaction result is
+    // more important than an observability write.
   }
 }
 

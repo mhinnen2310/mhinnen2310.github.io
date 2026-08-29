@@ -26,7 +26,7 @@ export async function pickSimilarBikes(reference: Pick<Bike, "id" | "brand" | "b
         genderStyle: true,
         colour: true,
         frameSizeCm: true,
-        wheelSizeCm: true,
+        wheelSizeInches: true,
         gears: true,
         assistanceLevels: true,
         brakeInfo: true,

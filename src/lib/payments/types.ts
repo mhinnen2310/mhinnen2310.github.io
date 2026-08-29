@@ -41,7 +41,11 @@ export interface PaymentProvider {
   readonly name: "mollie" | "mock";
   createPayment(args: CreatePaymentArgs): Promise<PaymentIntent>;
   /** Verify and interpret a webhook event. MUST validate identity. */
-  interpretWebhook(payload: unknown): Promise<{ providerPaymentId: string } & VerifiedPaymentState>;
+  interpretWebhook(payload: unknown): Promise<{
+    providerPaymentId: string;
+    /** Provider-authenticated metadata, used only to recover a local binding. */
+    metadata?: Record<string, unknown>;
+  } & VerifiedPaymentState>;
   /** Admin-initiated refund. */
   refund(providerPaymentId: string, amountCents: number | null): Promise<void>;
 }

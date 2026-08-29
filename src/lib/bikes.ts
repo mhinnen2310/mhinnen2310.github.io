@@ -1,4 +1,5 @@
 import type { Bike, BikeStatus } from "@prisma/client";
+import { numericValue } from "./utils";
 
 /**
  * Bicycle domain rules.
@@ -63,8 +64,10 @@ const ALLOWED_TRANSITIONS: Record<BikeStatus, BikeStatus[]> = {
   INTAKE: ["WORKSHOP", "READY", "AVAILABLE", "ARCHIVED"],
   WORKSHOP: ["INTAKE", "READY", "AVAILABLE", "ARCHIVED"],
   READY: ["WORKSHOP", "AVAILABLE", "ARCHIVED"],
-  AVAILABLE: ["READY", "WORKSHOP", "RESERVED", "SOLD", "ARCHIVED"],
-  RESERVED: ["AVAILABLE", "SOLD", "WORKSHOP", "ARCHIVED"],
+  // RESERVED and SOLD are lifecycle-managed states. Generic admin mutation
+  // must not enter/leave them; reservation and sale flows do so atomically.
+  AVAILABLE: ["READY", "WORKSHOP", "ARCHIVED"],
+  RESERVED: [],
   SOLD: ["ARCHIVED"],
   ARCHIVED: [],
 };
@@ -88,7 +91,7 @@ export interface BikePublic {
   genderStyle: string | null;
   colour: string | null;
   frameSizeCm: number | null;
-  wheelSizeCm: number | null;
+  wheelSizeInches: number | null;
   gears: number | null;
   assistanceLevels: number | null;
   brakeInfo: string | null;
@@ -149,7 +152,7 @@ export function toPublicBike(
     genderStyle: pick("genderStyle") ?? null,
     colour: pick("colour") ?? null,
     frameSizeCm: pick("frameSizeCm") ?? null,
-    wheelSizeCm: pick("wheelSizeCm") ?? null,
+    wheelSizeInches: numericValue(pick("wheelSizeInches")),
     gears: pick("gears") ?? null,
     assistanceLevels: pick("assistanceLevels") ?? null,
     brakeInfo: pick("brakeInfo") ?? null,
@@ -163,7 +166,7 @@ export function toPublicBike(
     electricalNotes: pick("electricalNotes") ?? null,
     batteryType: pick("batteryType") ?? null,
     batteryVoltage: pick("batteryVoltage") ?? null,
-    batteryAh: pick("batteryAh") ?? null,
+    batteryAh: numericValue(pick("batteryAh")),
     batteryWh: pick("batteryWh") ?? null,
     batteryCondition: pick("batteryCondition") ?? null,
     batteryReconditioned: pick("batteryReconditioned") ?? null,

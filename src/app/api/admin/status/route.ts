@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 import { getStaffUser } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { OrderStateError, setFulfilmentStatus } from "@/lib/orders";
 
 const STATUS_OPTIONS = {
   appointment: ["NEW", "CONTACTED", "CONFIRMED", "COMPLETED", "CANCELLED", "NO_SHOW"],
   serviceRequest: ["NEW", "IN_PROGRESS", "AWAITING_CUSTOMER", "RESOLVED", "CLOSED", "CANCELLED"],
   contactMessage: ["NEW", "CONTACTED", "RESOLVED"],
-  orderFulfilment: ["UNFULFILLED", "PREPARING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "FULFILLED", "CANCELLED"],
+  orderFulfilment: ["UNFULFILLED", "PREPARING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "FULFILLED"],
 } as const;
 
 type Entity = keyof typeof STATUS_OPTIONS;
@@ -38,17 +39,14 @@ export async function PATCH(req: Request) {
     } else if (entity === "contactMessage") {
       await prisma.contactMessage.update({ where: { id: body.id }, data: { status: body.status as never } });
     } else {
-      await prisma.order.update({
-        where: { id: body.id },
-        data: {
-          fulfilmentStatus: body.status as never,
-          fulfilledAt: body.status === "FULFILLED" ? new Date() : null,
-        },
-      });
+      await setFulfilmentStatus(body.id, body.status as "UNFULFILLED" | "PREPARING" | "READY_FOR_PICKUP" | "OUT_FOR_DELIVERY" | "FULFILLED", actor);
     }
     await audit("admin.status_changed", entity, body.id, { status: body.status }, actor);
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof OrderStateError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     console.error("admin status update failed", error);
     return NextResponse.json({ error: "De status kon niet worden opgeslagen." }, { status: 500 });
   }

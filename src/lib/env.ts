@@ -13,6 +13,7 @@ export const env = {
   isPreview,
   databaseUrl: process.env.DATABASE_URL,
   authSecret: process.env.AUTH_SECRET,
+  ipHashSecret: process.env.IP_HASH_SECRET,
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   baseUrl: process.env.APP_BASE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   paymentProvider: (process.env.PAYMENT_PROVIDER ?? "mock") as "mock" | "mollie",
@@ -52,6 +53,7 @@ export function assertEnv() {
     const missing: string[] = [];
     if (!env.databaseUrl) missing.push("DATABASE_URL");
     if (!env.authSecret) missing.push("AUTH_SECRET");
+    if (!env.ipHashSecret) missing.push("IP_HASH_SECRET");
     if (!env.mollieApiKey) missing.push("MOLLIE_API_KEY");
     if (!env.smtpUrl) missing.push("SMTP_URL");
     if (!process.env.EMAIL_FROM) missing.push("EMAIL_FROM");
@@ -76,6 +78,7 @@ export function assertEnv() {
     const missing: string[] = [];
     if (!env.databaseUrl) missing.push("DATABASE_URL");
     if (!env.authSecret) missing.push("AUTH_SECRET");
+    if (!env.ipHashSecret) missing.push("IP_HASH_SECRET");
     if (!isPublicHttpsUrl(env.siteUrl)) missing.push("NEXT_PUBLIC_SITE_URL (publieke https URL)");
     if (!isPublicHttpsUrl(env.baseUrl)) missing.push("APP_BASE_URL (publieke https URL)");
     if (env.storageDriver !== "supabase") missing.push("STORAGE_DRIVER=supabase");

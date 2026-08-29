@@ -31,7 +31,6 @@ import { hashPassword } from "../src/lib/auth";
 import { processImageUpload } from "../src/lib/images";
 import { generateBikeDescription, defaultDescriptionContext } from "../src/lib/descriptions";
 import { processProviderWebhook } from "../src/lib/checkout";
-import { issueInvoice } from "../src/lib/invoices";
 import { nextOrderNumberInTx } from "../src/lib/numbers";
 import { DEFAULT_DELIVERY } from "../src/lib/delivery";
 import { DEFAULT_WARRANTY_CONFIG } from "../src/lib/warranty";
@@ -148,7 +147,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "unisex",
       colour: "zwart",
       frameSizeCm: 52,
-      wheelSizeCm: 28,
+      wheelSizeInches: 28,
       gears: 7,
       assistanceLevels: 4,
       brakeInfo: "Hydraulische schijfremmen voor en achter",
@@ -183,7 +182,7 @@ const BIKES: BikeSeed[] = [
       acquisitionSource: "Inruil van een klant",
       partsCostCents: 18550,
       repairCostCents: 9200,
-      labourHours: 6,
+      labourMinutes: 360,
       labourNotes: "O.a. accurevisie (2u) en complete inloop (1,5u).",
       frameSerialRef: "SP-C2-88231-DEV",
       supplierDetails: "Particulier, Hengelo",
@@ -211,7 +210,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "unisex",
       colour: "antraciet",
       frameSizeCm: 56,
-      wheelSizeCm: 28,
+      wheelSizeInches: 28,
       gears: 9,
       assistanceLevels: 5,
       brakeInfo: "Mechanische schijfremmen",
@@ -241,7 +240,7 @@ const BIKES: BikeSeed[] = [
       acquisitionSource: "Aanbesteding (corporate overstay)",
       partsCostCents: 6500,
       repairCostCents: 4000,
-      labourHours: 3,
+      labourMinutes: 180,
       frameSerialRef: "BK-EX-1022-DEV",
       storageLocation: "Hok A1",
       publishedAt: new Date(Date.now() - 2 * 86400000),
@@ -265,7 +264,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "heren",
       colour: "donkergrijs",
       frameSizeCm: 58,
-      wheelSizeCm: 28,
+      wheelSizeInches: 28,
       gears: 7,
       assistanceLevels: 5,
       brakeInfo: "Hydraulische schijfremmen",
@@ -295,7 +294,7 @@ const BIKES: BikeSeed[] = [
       acquisitionSource: "Particulier, Enschede",
       partsCostCents: 9500,
       repairCostCents: 5500,
-      labourHours: 4,
+      labourMinutes: 240,
       frameSerialRef: "GZ-U8-55412-DEV",
       storageLocation: "Hok B1",
       publishedAt: new Date(Date.now() - 9 * 86400000),
@@ -306,7 +305,7 @@ const BIKES: BikeSeed[] = [
     slug: "gazelle-meduna-c10-hmb-t9",
     brand: "Gazelle",
     model: "Meduna C10 HMB",
-    status: "RESERVED",
+    status: "AVAILABLE", // reservation is created atomically below
     images: [{ bg: "#e6e2d8", label: "Gazelle Meduna C10 HMB", sub: "Gereserveerd — afspraak gepland" }],
     data: {
       title: "Gazelle Meduna C10 HMB",
@@ -316,7 +315,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "heren",
       colour: "bordeaux",
       frameSizeCm: 54,
-      wheelSizeCm: 28,
+      wheelSizeInches: 28,
       gears: 7,
       assistanceLevels: 5,
       brakeInfo: "Hydraulische schijfremmen",
@@ -358,7 +357,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "unisex",
       colour: "zwart",
       frameSizeCm: 54,
-      wheelSizeCm: 28,
+      wheelSizeInches: 28,
       gears: 10,
       assistanceLevels: 4,
       brakeInfo: "Hydraulische schijfremmen",
@@ -381,7 +380,7 @@ const BIKES: BikeSeed[] = [
       acquisitionSource: "Particulier, Oldenzaal",
       partsCostCents: 12000,
       repairCostCents: 8500,
-      labourHours: 7,
+      labourMinutes: 420,
       frameSerialRef: "CU-T5-30981-DEV",
       storageLocation: "Hok C2",
     },
@@ -401,7 +400,7 @@ const BIKES: BikeSeed[] = [
       genderStyle: "unisex",
       colour: "grijs",
       frameSizeCm: 17,
-      wheelSizeCm: 27.5,
+      wheelSizeInches: 27.5,
       gears: 12,
       assistanceLevels: 4,
       brakeInfo: "Hydraulische schijfremmen (4-kras)",
@@ -821,7 +820,7 @@ async function main() {
               taxCents: taxCents,
               specs: {
                 frameSizeCm: 54,
-                wheelSizeCm: 28,
+                wheelSizeInches: 28,
                 gears: 10,
                 batteryWh: 500,
                 motorPosition: "middenbuis",
@@ -834,7 +833,11 @@ async function main() {
       },
     });
     // Bike held for the order (checkout would do this atomically).
-    await tx.bike.update({ where: { id: soldBikeId }, data: { status: "RESERVED" } });
+    const held = await tx.bike.updateMany({
+      where: { id: soldBikeId, status: "AVAILABLE" },
+      data: { status: "RESERVED" },
+    });
+    if (held.count !== 1) throw new Error("Seed sale bike could not be reserved.");
     await tx.reservation.create({
       data: {
         bikeId: soldBikeId,
@@ -850,6 +853,7 @@ async function main() {
       data: {
         orderId: created.id,
         provider: "mock",
+        method: "MOCK",
         providerPaymentId: "mock_seed_2387",
         amountCents: orderTotal,
         currency: "EUR",
@@ -866,24 +870,31 @@ async function main() {
     paymentId: "mock_seed_2387",
     status: "paid",
   });
-  const invoice = await issueInvoice(order.id, admin.id);
+  const invoice = await prisma.invoice.findUnique({ where: { issuedOrderKey: order.id } });
   console.log(
-    `▸ Sample order ${order.orderNumber}: webhook=${webhookResult.outcome}, bike SOLD, invoice ${invoice.invoice.invoiceNumber} (PDF ${invoice.pdfKey ? "ok" : "niet gegenereerd"})`,
+    `▸ Sample order ${order.orderNumber}: webhook=${webhookResult.outcome}, bike SOLD, invoice ${invoice?.invoiceNumber ?? "niet aangemaakt"} (PDF ${invoice?.pdfKey ? "ok" : "niet gegenereerd"})`,
   );
 
   // --- Reserved bike: reservation + confirmed appointment ----------------------
   const reservedBikeId = bikeIds.get("T9")!;
-  const reservation = await prisma.reservation.create({
-    data: {
-      bikeId: reservedBikeId,
-      source: "APPOINTMENT",
-      customerName: "Sanne de Vries",
-      customerEmail: "sanne@voorbeeld.nl",
-      customerPhone: "06-5559876",
-      expiresAt: new Date(Date.now() + 3 * 86400000),
-      status: "ACTIVE",
-      note: "Gereserveerd vanuit bevestigde afspraak (DEV-seed).",
-    },
+  const reservation = await prisma.$transaction(async (tx) => {
+    const reserved = await tx.bike.updateMany({
+      where: { id: reservedBikeId, status: "AVAILABLE" },
+      data: { status: "RESERVED" },
+    });
+    if (reserved.count !== 1) throw new Error("Seed appointment bike could not be reserved.");
+    return tx.reservation.create({
+      data: {
+        bikeId: reservedBikeId,
+        source: "APPOINTMENT",
+        customerName: "Sanne de Vries",
+        customerEmail: "sanne@voorbeeld.nl",
+        customerPhone: "06-5559876",
+        expiresAt: new Date(Date.now() + 3 * 86400000),
+        status: "ACTIVE",
+        note: "Gereserveerd vanuit bevestigde afspraak (DEV-seed).",
+      },
+    });
   });
   const appointment = await prisma.appointment.create({
     data: {

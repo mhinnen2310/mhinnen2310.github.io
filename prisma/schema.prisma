@@ -50,6 +50,17 @@ enum PaymentStatus {
   PARTIALLY_REFUNDED
 }
 
+// The business method is separate from the technical provider. This keeps one
+// sale-completion flow possible for online, terminal and staff-confirmed
+// payments without teaching lifecycle code provider-specific rules.
+enum PaymentMethod {
+  MOLLIE
+  SUMUP
+  CASH
+  BANK_TRANSFER
+  MOCK
+}
+
 enum FulfilmentStatus {
   UNFULFILLED
   PREPARING
@@ -107,6 +118,7 @@ enum ReservationStatus {
 
 enum WebhookStatus {
   RECEIVED
+  PROCESSING
   PROCESSED
   FAILED
   DUPLICATE_IGNORED
@@ -246,12 +258,14 @@ model Bike {
 
   // Bicycle identity / specification (all optional — old stock may lack data)
   bikeType         String? // stapper, trekking, mountain, cargo, city, ...
-  isElectric       Boolean @default(true)
+  isElectric       Boolean  @default(true)
   frameStyle       String? // doorligger, diamond, ...
   genderStyle      String? // heren, damen, unisex
   colour           String?
   frameSizeCm      Int?
-  wheelSizeCm      Int?
+  // Values represent the conventional wheel size in inches (for example
+  // 27.5 or 28), not centimetres.
+  wheelSizeInches  Decimal? @db.Decimal(4, 1)
   gears            Int?
   assistanceLevels Int?
   brakeInfo        String?
@@ -269,7 +283,7 @@ model Bike {
   // Battery (estimates are explicitly estimates, not guarantees)
   batteryType           String?
   batteryVoltage        Int?
-  batteryAh             Int?
+  batteryAh             Decimal?  @db.Decimal(5, 2)
   batteryWh             Int?
   batteryCondition      String?
   batteryReconditioned  Boolean?
@@ -307,7 +321,8 @@ model Bike {
   repairCostCents      Int       @default(0)
   otherCostCents       Int       @default(0)
   labourNotes          String?
-  labourHours          Int?
+  // Store actual labour in minutes; whole hours were needlessly lossy.
+  labourMinutes        Int?
 
   // PRIVATE traceability
   frameSerialRef  String?
@@ -570,20 +585,21 @@ model OrderLine {
 }
 
 model Payment {
-  id                String    @id @default(cuid())
+  id                String        @id @default(cuid())
   orderId           String
-  provider          String // mollie | mock
-  providerPaymentId String?   @unique
+  provider          String // mollie | sumup | mock | manual
+  method            PaymentMethod @default(MOLLIE)
+  providerPaymentId String?       @unique
   amountCents       Int
-  currency          String    @default("EUR")
+  currency          String        @default("EUR")
   status            String // provider status (raw)
   description       String?
   metadata          Json?
   paymentUrl        String?
   capturedAt        DateTime?
   refundedAt        DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -600,6 +616,7 @@ model WebhookEvent {
   processedAt     DateTime?
   error           String?
   createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@unique([provider, externalEventId])
 }
@@ -614,20 +631,24 @@ model NumberCounter {
 }
 
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique // DF-F-2026-00001
-  orderId       String // multiple documents possible per order (invoice + credit note)
-  status        InvoiceStatus @default(ISSUED)
-  issuedAt      DateTime      @default(now())
-  customer      Json // immutable snapshot
-  company       Json // immutable snapshot
-  lines         Json
-  totals        Json
-  tax           Json
-  pdfKey        String?
-  notes         String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  invoiceNumber  String        @unique // DF-F-2026-00001
+  orderId        String // multiple documents possible per order (invoice + credit note)
+  // Non-null only for the one normal invoice issued for an order. Credit
+  // notes remain additional documents. The nullable unique key closes the
+  // concurrent "find then create" invoice race safely.
+  issuedOrderKey String?       @unique
+  status         InvoiceStatus @default(ISSUED)
+  issuedAt       DateTime      @default(now())
+  customer       Json // immutable snapshot
+  company        Json // immutable snapshot
+  lines          Json
+  totals         Json
+  tax            Json
+  pdfKey         String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

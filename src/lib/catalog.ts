@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import type { Prisma, Bike, BikeImage, Product, ProductImage } from "@prisma/client";
 import { toPublicBike, type BikePublic } from "@/lib/bikes";
 import { sweepExpiredOrdersIfDue } from "./orders";
+import { numericValue } from "./utils";
 
 /**
  * Catalogue queries (spec 11).
@@ -76,7 +77,7 @@ export function buildCatalogWhere(p: CatalogParams, includeSold = false): Prisma
   if (p.merk?.length) and.push({ brand: { in: p.merk } });
   if (p.type?.length) and.push({ bikeType: { in: p.type } });
   if (p.frame?.length) and.push({ frameSizeCm: { in: p.frame.map(Number) } });
-  if (p.wiel?.length) and.push({ wheelSizeCm: { in: p.wiel.map(Number) } });
+  if (p.wiel?.length) and.push({ wheelSizeInches: { in: p.wiel.map(Number) } });
   if (p.motor?.length) and.push({ motorPosition: { in: p.motor } });
   if (p.conditie?.length) and.push({ conditionGrade: { in: p.conditie } });
   if (p.electric === "ja") and.push({ isElectric: true });
@@ -130,7 +131,7 @@ export async function listBikes(p: CatalogParams, includeSold = false): Promise<
     prisma.bike.findMany({ where: scope, distinct: ["brand"], select: { brand: true }, orderBy: { brand: "asc" }, take: 40 }),
     prisma.bike.findMany({ where: { ...scope, bikeType: { not: null } }, distinct: ["bikeType"], select: { bikeType: true }, orderBy: { bikeType: "asc" }, take: 40 }),
     prisma.bike.findMany({ where: { ...scope, frameSizeCm: { not: null } }, distinct: ["frameSizeCm"], select: { frameSizeCm: true }, orderBy: { frameSizeCm: "asc" }, take: 40 }),
-    prisma.bike.findMany({ where: { ...scope, wheelSizeCm: { not: null } }, distinct: ["wheelSizeCm"], select: { wheelSizeCm: true }, orderBy: { wheelSizeCm: "asc" }, take: 40 }),
+    prisma.bike.findMany({ where: { ...scope, wheelSizeInches: { not: null } }, distinct: ["wheelSizeInches"], select: { wheelSizeInches: true }, orderBy: { wheelSizeInches: "asc" }, take: 40 }),
     prisma.bike.findMany({ where: { ...scope, motorPosition: { not: null } }, distinct: ["motorPosition"], select: { motorPosition: true }, orderBy: { motorPosition: "asc" }, take: 40 }),
     prisma.bike.findMany({ where: { ...scope, conditionGrade: { not: null } }, distinct: ["conditionGrade"], select: { conditionGrade: true }, orderBy: { conditionGrade: "asc" }, take: 40 }),
   ]);
@@ -144,7 +145,7 @@ export async function listBikes(p: CatalogParams, includeSold = false): Promise<
       merken: merken.map((r) => r.brand as string),
       types: types.map((r) => r.bikeType as string),
       frames: frames.map((r) => r.frameSizeCm as number),
-      wielen: wielen.map((r) => r.wheelSizeCm as number),
+      wielen: wielen.map((r) => numericValue(r.wheelSizeInches)).filter((value): value is number => value != null),
       motoren: motoren.map((r) => r.motorPosition as string),
       condities: condities.map((r) => r.conditionGrade as string),
     },

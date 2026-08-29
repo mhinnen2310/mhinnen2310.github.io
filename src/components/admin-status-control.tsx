@@ -14,7 +14,7 @@ export function AdminStatusControl({
   entity: AdminStatusEntity;
   id: string;
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -49,7 +49,7 @@ export function AdminStatusControl({
     <form onSubmit={submit} className="space-y-1">
       <div className="flex min-w-56 gap-2">
         <select name="status" defaultValue={value} aria-label="Status" className="min-w-0 flex-1 rounded-md border border-line bg-card px-2 py-1.5 text-xs text-ink">
-          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
         </select>
         <button type="submit" disabled={busy} className="rounded-md border border-brand-700 px-2.5 py-1.5 text-xs font-semibold text-brand-800 hover:bg-brand-50 disabled:opacity-60">
           {busy ? "…" : "Opslaan"}

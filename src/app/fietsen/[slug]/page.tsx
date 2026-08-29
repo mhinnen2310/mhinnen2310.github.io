@@ -106,11 +106,7 @@ export default async function BikePage({ params }: Props) {
   specs.push(["Elektrisch", bike.isElectric ? "Ja" : "Nee"]);
   if (bike.colour) specs.push(["Kleur", bike.colour]);
   if (bike.frameSizeCm) specs.push(["Framemaat", `${bike.frameSizeCm} cm`]);
-  if (bike.wheelSizeCm)
-    specs.push([
-      "Wielmaat",
-      bike.wheelSizeCm >= 15 && bike.wheelSizeCm <= 30 ? `${bike.wheelSizeCm}"` : `${bike.wheelSizeCm} cm`,
-    ]);
+  if (bike.wheelSizeInches) specs.push(["Wielmaat", `${bike.wheelSizeInches}"`]);
   if (bike.gears) specs.push(["Versnellingen", `${bike.gears}`]);
   if (bike.assistanceLevels) specs.push(["Ondersteuningsniveaus", `${bike.assistanceLevels}`]);
   if (bike.brakeInfo) specs.push(["Remmen", bike.brakeInfo]);
