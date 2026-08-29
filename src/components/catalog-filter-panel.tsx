@@ -27,7 +27,6 @@ function group(name: string, label: string, values: { value: string; label: stri
               name={name}
               value={v.value}
               defaultChecked={active.includes(v.value)}
-              onChange={() => {}}
               className="h-4 w-4 accent-brand-700"
             />
             {v.label}
