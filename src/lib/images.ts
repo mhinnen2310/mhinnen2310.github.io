@@ -79,7 +79,11 @@ export async function processImageUpload(
 
   const finalExt = originalExt === "png" ? "png" : "jpg";
   const originalFile = `orig.${finalExt}`;
-  await storage.put(`${key}/${originalFile}`, originalBuffer);
+  await storage.put(
+    `${key}/${originalFile}`,
+    originalBuffer,
+    finalExt === "png" ? "image/png" : "image/jpeg",
+  );
 
   const width = meta.width ?? 0;
   const height = meta.height ?? 0;
@@ -94,7 +98,7 @@ export async function processImageUpload(
         .resize({ width: w, withoutEnlargement: true })
         .webp({ quality: 80 })
         .toBuffer()
-        .then((buf) => storage.put(`${key}/w-${w}.webp`, buf)),
+        .then((buf) => storage.put(`${key}/w-${w}.webp`, buf, "image/webp")),
     );
     if (avif) {
       jobs.push(
@@ -102,7 +106,7 @@ export async function processImageUpload(
           .resize({ width: w, withoutEnlargement: true })
           .avif({ quality: 62 })
           .toBuffer()
-          .then((buf) => storage.put(`${key}/a-${w}.avif`, buf)),
+          .then((buf) => storage.put(`${key}/a-${w}.avif`, buf, "image/avif")),
       );
     }
   }
