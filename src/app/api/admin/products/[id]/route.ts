@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { getStaffUser } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
+import { ProductInputError, parseProductUpdate } from "@/lib/product-input";
 import { prisma } from "@/lib/prisma";
-
-function integer(value: unknown, label: string, max: number): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > max) {
-    throw new Error(`${label} is ongeldig.`);
-  }
-  return value;
-}
+import { slugify } from "@/lib/utils";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const actor = await getStaffUser();
@@ -22,23 +17,29 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   try {
-    const stockQuantity = integer(body.stockQuantity, "Voorraad", 1_000_000);
-    const salePriceCents = integer(body.salePriceCents, "Verkoopprijs", 100_000_000);
-    if (typeof body.active !== "boolean") throw new Error("Actief-status is ongeldig.");
+    const data = parseProductUpdate(body);
+    if (typeof data.slug === "string") {
+      const slug = slugify(data.slug);
+      if (!slug) throw new ProductInputError("De slug is ongeldig.");
+      data.slug = slug;
+    }
+    if (data.sku === null) throw new ProductInputError("SKU is verplicht.");
+    if (data.title === null) throw new ProductInputError("Titel is verplicht.");
     const result = await prisma.$transaction(async (tx) => {
       const current = await tx.product.findUnique({ where: { id } });
       if (!current) throw new Error("Product niet gevonden.");
-      const updated = await tx.product.update({ where: { id }, data: { stockQuantity, salePriceCents, active: body.active as boolean } });
-      const change = stockQuantity - current.stockQuantity;
+      const updated = await tx.product.update({ where: { id }, data });
+      const requestedStock = typeof data.stockQuantity === "number" ? data.stockQuantity : current.stockQuantity;
+      const change = requestedStock - current.stockQuantity;
       if (change !== 0) {
         await tx.stockMovement.create({ data: { productId: id, change, reason: "adjust", reference: "admin", note: "Handmatige voorraadcorrectie" } });
       }
       return updated;
     });
-    await audit("product.updated", "Product", id, { stockQuantity, salePriceCents, active: body.active }, actor);
+    await audit("product.updated", "Product", id, { fields: Object.keys(data) }, actor);
     return NextResponse.json({ id: result.id });
   } catch (error) {
-    if (error instanceof Error && /ongeldig|niet gevonden/i.test(error.message)) {
+    if (error instanceof ProductInputError || (error instanceof Error && /ongeldig|niet gevonden/i.test(error.message))) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error("admin product update failed", error);

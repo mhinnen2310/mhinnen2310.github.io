@@ -31,6 +31,7 @@ enum BikeStatus {
   READY
   AVAILABLE
   RESERVED
+  SALE_PENDING
   SOLD
   ARCHIVED
 }
@@ -116,6 +117,13 @@ enum ReservationStatus {
   CANCELLED
 }
 
+enum InspectionResult {
+  PASS
+  ATTENTION
+  FAIL
+  NOT_APPLICABLE
+}
+
 enum WebhookStatus {
   RECEIVED
   PROCESSING
@@ -154,6 +162,7 @@ model User {
   orders     Order[]
   authTokens AuthToken[]
   auditLogs  AuditLog[]
+  completedServiceTasks ServiceTask[] @relation("ServiceTaskCompletedBy")
 
   @@index([role])
 }
@@ -255,6 +264,8 @@ model Bike {
   title         String
   brand         String
   model         String
+  variant       String?
+  modelYear     Int?
 
   // Bicycle identity / specification (all optional — old stock may lack data)
   bikeType         String? // stapper, trekking, mountain, cargo, city, ...
@@ -282,9 +293,19 @@ model Bike {
 
   // Battery (estimates are explicitly estimates, not guarantees)
   batteryType           String?
+  batteryManufacturer   String?
+  batteryModel          String?
   batteryVoltage        Int?
   batteryAh             Decimal?  @db.Decimal(5, 2)
   batteryWh             Int?
+  // Measured values are intentionally distinct from the nominal label data.
+  batteryMeasuredAh     Decimal?  @db.Decimal(5, 2)
+  batteryMeasuredWh     Int?
+  batterySohPercent     Decimal?  @db.Decimal(5, 2)
+  batteryTestDate       DateTime?
+  batteryTestMethod     String?
+  batteryCycleCount     Int?
+  batteryLabelPhotoKey  String?   // PRIVATE
   batteryCondition      String?
   batteryReconditioned  Boolean?
   batteryRevisionDate   DateTime?
@@ -357,6 +378,7 @@ model Bike {
   appointments    Appointment[]
   serviceRequests ServiceRequest[]
   warrantyRecords WarrantyRecord[]
+  intakeRecord    BikeIntake?
 
   @@index([status, createdAt])
   @@index([brand, model])
@@ -372,29 +394,68 @@ model BikeImage {
   height     Int
   sortOrder  Int      @default(0)
   isCover    Boolean  @default(false)
+  // Internal inspection/workshop photos never leave the admin dossier.
+  isInternal Boolean  @default(false)
   createdAt  DateTime @default(now())
 
   bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
 
   @@index([bikeId, sortOrder])
+  @@index([bikeId, isInternal, sortOrder])
 }
 
 // Workshop line items (per-bike service history)
 model ServiceTask {
   id            String    @id @default(cuid())
   bikeId        String
+  // Canonical key for the one-per-bike inspection checklist; null for normal work.
+  checklistKey  String?
+  inspectionResult InspectionResult?
   description   String
+  partName      String?
   partCostCents Int?
   quantity      Int       @default(1)
+  labourMinutes Int?
+  labourCostCents Int?
+  photoKeys     String[]  @default([])
   doneDate      DateTime?
+  completedById String?
+  // Tracks whether this task is currently included in Bike cost totals.
+  costAppliedAt DateTime?
   internalNotes String?
   completed     Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("ServiceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
 
   @@index([bikeId, completed])
+  @@index([bikeId, checklistKey])
+  @@index([completedById])
+  @@unique([bikeId, checklistKey])
+}
+
+// Internal intake control. Commercial source/date/price stay canonical on
+// Bike; this record stores only the operational checks around them.
+model BikeIntake {
+  id                     String   @id @default(cuid())
+  bikeId                 String   @unique
+  frameSerialPresent     Boolean  @default(false)
+  keysPresent            Boolean  @default(false)
+  chargerPresent         Boolean  @default(false)
+  batteryPresent         Boolean  @default(false)
+  defectsAssessed        Boolean  @default(false)
+  knownDefects           String?
+  theftCheckCompleted    Boolean  @default(false)
+  theftCheckDate         DateTime?
+  theftCheckResult       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@index([theftCheckCompleted])
 }
 
 model PriceHistoryEntry {

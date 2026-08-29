@@ -115,6 +115,15 @@ export async function processImageUpload(
   return { key, originalFile, width, height, avif, bytesOriginal: originalBuffer.length };
 }
 
+/** Remove all normalised files belonging to one database image record. */
+export async function deleteProcessedImage(key: string): Promise<void> {
+  const candidates = [
+    "orig.jpg", "orig.png", "orig.webp", "orig.avif", "orig.bin",
+    ...IMAGE_WIDTHS.flatMap((width) => [`w-${width}.webp`, `a-${width}.avif`]),
+  ];
+  await Promise.allSettled(candidates.map((file) => storage.delete(`${key}/${file}`)));
+}
+
 // URL helpers live in ./media.ts (single source of truth).
 
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MB per image

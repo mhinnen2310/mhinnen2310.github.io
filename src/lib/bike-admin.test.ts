@@ -32,4 +32,9 @@ describe("manual bike sale prevention", () => {
     );
     expect(mocks.bike.update).not.toHaveBeenCalled();
   });
+
+  it("refuses the future sale-pending status outside the central lifecycle", async () => {
+    await expect(setBikeStatus("bike-1", "SALE_PENDING", null)).rejects.toThrow("centrale lifecycle");
+    expect(mocks.bike.update).not.toHaveBeenCalled();
+  });
 });

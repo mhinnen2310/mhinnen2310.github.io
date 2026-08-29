@@ -33,15 +33,16 @@ export async function searchStorefront(query: string, includeSoldBikes = false):
     { description: { contains: q } },
   ];
   const bikeWhere: Prisma.BikeWhereInput = includeSoldBikes
-    ? { OR: bikeOr }
+    ? { status: { in: ["SOLD", "ARCHIVED"] }, OR: bikeOr }
     : { status: "AVAILABLE", OR: bikeOr };
 
   const [bikes, products] = await Promise.all([
     prisma.bike.findMany({
       where: bikeWhere,
       include: {
-        _count: { select: { images: true } },
+        _count: { select: { images: { where: { isInternal: false } } } },
         images: {
+          where: { isInternal: false },
           orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }],
           take: 1,
           select: { storageKey: true, altText: true },

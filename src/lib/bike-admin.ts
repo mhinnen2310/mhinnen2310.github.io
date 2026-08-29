@@ -5,6 +5,7 @@ import { generateBikeDescription, defaultDescriptionContext } from "./descriptio
 import { audit } from "./audit";
 import type { SessionUser } from "./auth";
 import { env } from "./env";
+import { addWorkshopTask, completeWorkshopTask, getIntakeReadiness, getWorkshopReadiness, WorkshopError } from "./workshop";
 
 /**
  * Admin operations on unique bikes (specs 7, 8, 46, 47).
@@ -30,12 +31,14 @@ export interface PublishCheck {
 
 /** "Ready for listing" checklist (spec 7). */
 export async function checkPublishable(
-  bike: Bike & { images: { id: string }[] },
+  bike: Bike & { images: { id: string; isInternal: boolean }[] },
 ): Promise<PublishCheck> {
   const missing: string[] = [];
   if (!bike.priceCents || bike.priceCents <= 0) missing.push("Vraagprijs invullen");
-  if (!bike.images || bike.images.length === 0) missing.push("Minimaal 1 foto toevoegen");
-  if (!bike.description?.trim() && !bike.descriptionTouched) missing.push("Beschrijving genereren of invoeren");
+  if (!bike.images?.some((image) => !image.isInternal)) missing.push("Minimaal 1 publieke foto toevoegen");
+  // Untouched descriptions are generated at publication time. An intentionally
+  // cleared editor field is never silently published as an empty advert.
+  if (!bike.description?.trim() && bike.descriptionTouched) missing.push("Winkelbeschrijving invullen");
   if (!bike.title?.trim()) missing.push("Titel controleren");
   return { ready: missing.length === 0, missing };
 }
@@ -52,14 +55,23 @@ export async function setBikeStatus(
   if (to === "SOLD") {
     throw new BikeAdminError("Een fiets kan alleen via de centrale verkoopafronding als verkocht worden gemarkeerd.");
   }
-  if (to === "RESERVED" || bike.status === "RESERVED") {
-    throw new BikeAdminError("Reserveringen verlopen uitsluitend via de reserveringslifecycle.");
+  if (to === "RESERVED" || to === "SALE_PENDING" || bike.status === "RESERVED" || bike.status === "SALE_PENDING") {
+    throw new BikeAdminError("Reserveringen en verkoopafronding verlopen uitsluitend via de centrale lifecycle.");
   }
   if (!canTransition(bike.status, to)) {
     throw new BikeAdminError(`Statuswijziging ${bike.status} -> ${to} is niet toegestaan.`);
   }
 
   const data: Record<string, unknown> = { status: to };
+
+  if (to === "WORKSHOP") {
+    const intake = await getIntakeReadiness(bikeId);
+    if (!intake.ready) throw new BikeAdminError(`De intake is nog niet compleet: ${intake.missing.join(", ")}.`);
+  }
+  if (to === "READY") {
+    const workshop = await getWorkshopReadiness(bikeId);
+    if (!workshop.ready) throw new BikeAdminError(`De inspectiechecklist is nog niet compleet: ${workshop.missing.join(", ")}.`);
+  }
 
   if (to === "AVAILABLE") {
     const check = await checkPublishable(bike);
@@ -73,7 +85,12 @@ export async function setBikeStatus(
     }
   }
 
-  const updated = await prisma.bike.update({ where: { id: bike.id }, data });
+  const changed = await prisma.bike.updateMany({ where: { id: bike.id, status: bike.status }, data });
+  if (changed.count !== 1) {
+    throw new BikeAdminError("De status wijzigde gelijktijdig; ververs het fietsdossier en probeer opnieuw.");
+  }
+  const updated = await prisma.bike.findUnique({ where: { id: bike.id } });
+  if (!updated) throw new BikeAdminError("Fiets niet gevonden.");
   await audit(
     `bike.status:${bike.status}->${to}`,
     "Bike",
@@ -167,36 +184,21 @@ export interface ServiceTaskInput {
 }
 
 export async function addServiceTask(bikeId: string, input: ServiceTaskInput, actor: SessionUser | null) {
-  const bike = await prisma.bike.findUnique({ where: { id: bikeId } });
-  if (!bike) throw new BikeAdminError("Fiets niet gevonden.");
-  const partCost = input.partCostCents ?? 0;
-  await prisma.serviceTask.create({
-    data: {
-      bikeId,
-      description: input.description,
-      partCostCents: partCost || null,
-      quantity: input.quantity ?? 1,
-      doneDate: input.doneDate ?? null,
-      internalNotes: input.internalNotes ?? null,
-      completed: input.completed ?? false,
-    },
-  });
-  if (partCost > 0) {
-    await prisma.bike.update({
-      where: { id: bike.id },
-      data: { partsCostCents: { increment: partCost * (input.quantity ?? 1) } },
-    });
+  try {
+    await addWorkshopTask(bikeId, input, actor);
+  } catch (error) {
+    if (error instanceof WorkshopError) throw new BikeAdminError(error.message);
+    throw error;
   }
-  await audit("bike.service_task_added", "Bike", bike.id, { description: input.description }, actor);
 }
 
-export async function setTaskCompleted(bikeId: string, taskId: string, completed: boolean) {
-  const task = await prisma.serviceTask.findUnique({ where: { id: taskId } });
-  if (!task || task.bikeId !== bikeId) throw new BikeAdminError("Werkplaatsactiviteit niet gevonden.");
-  await prisma.serviceTask.update({
-    where: { id: taskId },
-    data: { completed, doneDate: completed ? new Date() : null },
-  });
+export async function setTaskCompleted(bikeId: string, taskId: string, completed: boolean, actor: SessionUser | null) {
+  try {
+    await completeWorkshopTask(bikeId, taskId, completed, actor);
+  } catch (error) {
+    if (error instanceof WorkshopError) throw new BikeAdminError(error.message);
+    throw error;
+  }
 }
 
 // --- Specs / costs -------------------------------------------------------------------
@@ -235,6 +237,13 @@ export async function updateBike(
   }
   if (newPrice != null && newPrice !== bike.priceCents) {
     const updated = await prisma.$transaction(async (tx) => {
+      const changed = await tx.bike.updateMany({
+        where: { id: bikeId, priceCents: bike.priceCents },
+        data: { ...data, previousPriceCents: bike.priceCents },
+      });
+      if (changed.count !== 1) {
+        throw new BikeAdminError("De vraagprijs wijzigde gelijktijdig; ververs het fietsdossier en probeer opnieuw.");
+      }
       await tx.priceHistoryEntry.create({
         data: {
           bikeId,
@@ -243,15 +252,16 @@ export async function updateBike(
           changedBy: actor?.id ?? null,
         },
       });
-      return tx.bike.update({ where: { id: bike.id }, data });
+      return tx.bike.findUnique({ where: { id: bike.id } });
     });
     await audit(
       "bike.updated",
       "Bike",
       bike.id,
-      { fields: Object.keys(input), priceChanged: true },
+      { fields: Object.keys(input), priceChanged: true, oldPriceCents: bike.priceCents, newPriceCents: newPrice },
       actor,
     );
+    if (!updated) throw new BikeAdminError("Fiets niet gevonden.");
     return updated as Bike;
   }
 

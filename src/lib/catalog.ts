@@ -1,6 +1,6 @@
 import { prisma } from "./prisma";
 import type { Prisma, Bike, BikeImage, Product, ProductImage } from "@prisma/client";
-import { toPublicBike, type BikePublic } from "@/lib/bikes";
+import { isPublicBikeStatus, toPublicBike, type BikePublic } from "@/lib/bikes";
 import { sweepExpiredOrdersIfDue } from "./orders";
 import { numericValue } from "./utils";
 
@@ -112,8 +112,9 @@ export async function listBikes(p: CatalogParams, includeSold = false): Promise<
     prisma.bike.findMany({
       where,
       include: {
-        _count: { select: { images: true } },
+        _count: { select: { images: { where: { isInternal: false } } } },
         images: {
+          where: { isInternal: false },
           orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }],
           take: 1,
           select: { storageKey: true, altText: true },
@@ -158,8 +159,8 @@ export async function latestAvailableBikes(limit = 4): Promise<BikePublic[]> {
   const bikes: BikeRow[] = await prisma.bike.findMany({
     where: { status: "AVAILABLE" },
     include: {
-      _count: { select: { images: true } },
-      images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true } },
+      _count: { select: { images: { where: { isInternal: false } } } },
+      images: { where: { isInternal: false }, orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true } },
     },
     orderBy: [{ publishedAt: "desc" }],
     take: limit,
@@ -171,11 +172,11 @@ export async function findPublicBikeBySlug(slug: string) {
   const bike = await prisma.bike.findUnique({
     where: { slug },
     include: {
-      _count: { select: { images: true } },
-      images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
+      _count: { select: { images: { where: { isInternal: false } } } },
+      images: { where: { isInternal: false }, orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }] },
     },
   });
-  if (!bike) return null;
+  if (!bike || !isPublicBikeStatus(bike.status)) return null;
   return {
     public: toPublicBike({
       ...bike,

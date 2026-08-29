@@ -72,7 +72,7 @@ export async function quoteCart(cartId: string): Promise<CartQuote> {
     include: {
       lines: {
         include: {
-          bike: { include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } } },
+          bike: { include: { images: { where: { isInternal: false }, orderBy: { sortOrder: "asc" }, take: 1 } } },
           product: { include: { images: { orderBy: { sortOrder: "asc" }, take: 1 } } },
         },
       },

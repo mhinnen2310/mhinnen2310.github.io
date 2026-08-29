@@ -102,6 +102,8 @@ export default async function BikePage({ params }: Props) {
   };
 
   const specs: [string, string][] = [];
+  if (bike.variant) specs.push(["Uitvoering", bike.variant]);
+  if (bike.modelYear) specs.push(["Bouwjaar", `${bike.modelYear}`]);
   if (bike.bikeType) specs.push(["Type", bike.bikeType]);
   specs.push(["Elektrisch", bike.isElectric ? "Ja" : "Nee"]);
   if (bike.colour) specs.push(["Kleur", bike.colour]);

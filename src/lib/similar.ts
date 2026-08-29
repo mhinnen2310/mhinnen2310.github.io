@@ -59,8 +59,8 @@ export async function pickSimilarBikes(reference: Pick<Bike, "id" | "brand" | "b
         status: true,
         publishedAt: true,
         createdAt: true,
-        _count: { select: { images: true } },
-        images: { orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true } },
+        _count: { select: { images: { where: { isInternal: false } } } },
+        images: { where: { isInternal: false }, orderBy: [{ isCover: "desc" }, { sortOrder: "asc" }], take: 1, select: { storageKey: true, altText: true } },
       },
       take: 40,
     });

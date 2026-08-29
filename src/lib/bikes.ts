@@ -42,6 +42,7 @@ export const BIKE_STATUSES: BikeStatus[] = [
   "READY",
   "AVAILABLE",
   "RESERVED",
+  "SALE_PENDING",
   "SOLD",
   "ARCHIVED",
 ];
@@ -52,6 +53,7 @@ const STATUS_LABELS: Record<BikeStatus, string> = {
   READY: "Klaar",
   AVAILABLE: "Beschikbaar",
   RESERVED: "Gereserveerd",
+  SALE_PENDING: "Verkoop wordt afgerond",
   SOLD: "Verkocht",
   ARCHIVED: "Gearchiveerd",
 };
@@ -60,14 +62,21 @@ export function bikeStatusLabel(status: BikeStatus): string {
   return STATUS_LABELS[status];
 }
 
+/** The only bike states that may have a public detail page. */
+export function isPublicBikeStatus(status: BikeStatus): boolean {
+  return status === "AVAILABLE" || status === "RESERVED" || status === "SOLD" || status === "ARCHIVED";
+}
+
 const ALLOWED_TRANSITIONS: Record<BikeStatus, BikeStatus[]> = {
-  INTAKE: ["WORKSHOP", "READY", "AVAILABLE", "ARCHIVED"],
-  WORKSHOP: ["INTAKE", "READY", "AVAILABLE", "ARCHIVED"],
+  // A bike must always be inspected in the workshop before it can be ready.
+  INTAKE: ["WORKSHOP", "ARCHIVED"],
+  WORKSHOP: ["INTAKE", "READY", "ARCHIVED"],
   READY: ["WORKSHOP", "AVAILABLE", "ARCHIVED"],
-  // RESERVED and SOLD are lifecycle-managed states. Generic admin mutation
+  // RESERVED, SALE_PENDING and SOLD are lifecycle-managed states. Generic admin mutation
   // must not enter/leave them; reservation and sale flows do so atomically.
   AVAILABLE: ["READY", "WORKSHOP", "ARCHIVED"],
   RESERVED: [],
+  SALE_PENDING: [],
   SOLD: ["ARCHIVED"],
   ARCHIVED: [],
 };
@@ -85,6 +94,8 @@ export interface BikePublic {
   title: string;
   brand: string;
   model: string;
+  variant: string | null;
+  modelYear: number | null;
   bikeType: string | null;
   isElectric: boolean;
   frameStyle: string | null;
@@ -146,6 +157,8 @@ export function toPublicBike(
     title: pick("title"),
     brand: pick("brand"),
     model: pick("model"),
+    variant: pick("variant") ?? null,
+    modelYear: pick("modelYear") ?? null,
     bikeType: pick("bikeType") ?? null,
     isElectric: pick("isElectric"),
     frameStyle: pick("frameStyle") ?? null,
@@ -199,6 +212,9 @@ export interface MarginBreakdown {
   repairCostCents: number;
   otherCostCents: number;
   totalCostCents: number;
+  askingPriceCents: number;
+  expectedGrossMarginCents: number | null;
+  expectedMarginPercent: number | null;
   realisedSalePriceCents: number | null;
   grossMarginCents: number | null;
   marginPercent: number | null;
@@ -209,21 +225,48 @@ export function computeMargin(bike: {
   partsCostCents: number;
   repairCostCents: number;
   otherCostCents: number;
+  priceCents: number;
   realisedSalePriceCents: number | null;
 }): MarginBreakdown {
   const acquisition = bike.acquisitionCostCents ?? 0;
   const totalCost = acquisition + (bike.partsCostCents ?? 0) + (bike.repairCostCents ?? 0) + (bike.otherCostCents ?? 0);
+  const asking = bike.priceCents;
   const sold = bike.realisedSalePriceCents;
+  const marginPercent = (revenueCents: number | null) =>
+    revenueCents != null && totalCost > 0
+      ? Math.round(((revenueCents - totalCost) / totalCost) * 1000) / 10
+      : null;
   return {
     acquisitionCostCents: acquisition,
     partsCostCents: bike.partsCostCents ?? 0,
     repairCostCents: bike.repairCostCents ?? 0,
     otherCostCents: bike.otherCostCents ?? 0,
     totalCostCents: totalCost,
+    askingPriceCents: asking,
+    expectedGrossMarginCents: asking > 0 ? asking - totalCost : null,
+    expectedMarginPercent: asking > 0 ? marginPercent(asking) : null,
     realisedSalePriceCents: sold,
     grossMarginCents: sold != null ? sold - totalCost : null,
-    marginPercent: sold != null && totalCost > 0 ? Math.round(((sold - totalCost) / totalCost) * 1000) / 10 : null,
+    marginPercent: marginPercent(sold),
   };
+}
+
+/** Days since acquisition, falling back to dossier creation for legacy stock. */
+export function daysSinceAcquisition(
+  bike: { acquisitionDate: Date | null; createdAt: Date },
+  end: Date = new Date(),
+): number {
+  const start = bike.acquisitionDate ?? bike.createdAt;
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86_400_000));
+}
+
+/** Days since first publication as AVAILABLE; null before a bike is listed. */
+export function daysSinceAvailable(
+  bike: { publishedAt: Date | null },
+  end: Date = new Date(),
+): number | null {
+  if (!bike.publishedAt) return null;
+  return Math.max(0, Math.floor((end.getTime() - bike.publishedAt.getTime()) / 86_400_000));
 }
 
 // --- Similar bikes (deterministic, no ML) -------------------------------------
