@@ -68,19 +68,19 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (signedIn && sessions.hasPin()) unlocked = false }
   when {
     !signedIn -> LoginScreen(api, onLoggedIn = { signedIn = true; unlocked = !sessions.hasPin() })
-    !sessions.hasPin() -> PinScreen("Kies een app-pincode", "Deze pincode ontgrendelt de app op dit toestel.", false, null) { pin -> sessions.savePin(pin); unlocked = true }
-    !unlocked -> PinScreen("App vergrendeld", "Voer je persoonlijke pincode in of gebruik je vingerafdruk.", true, { activity.unlockWithBiometric { unlocked = true } }) { pin -> if (sessions.verifyPin(pin)) unlocked = true }
+    !sessions.hasPin() -> PinScreen("Kies een app-pincode", "Deze pincode ontgrendelt de app op dit toestel.", false, null, true) { pin -> sessions.savePin(pin); unlocked = true; true }
+    !unlocked -> PinScreen("App vergrendeld", "Voer je persoonlijke pincode in of gebruik je vingerafdruk.", true, { activity.unlockWithBiometric { unlocked = true } }, false) { pin -> sessions.verifyPin(pin).also { if (it) unlocked = true } }
     else -> StaffApp(api, onLogout = { scope.launch { background { api.logout() } }; signedIn = false; unlocked = false })
   }
 }
 
-@Composable private fun PinScreen(title: String, copy: String, allowBiometric: Boolean, biometric: (() -> Unit)?, submit: (String) -> Unit) {
+@Composable private fun PinScreen(title: String, copy: String, allowBiometric: Boolean, biometric: (() -> Unit)?, setup: Boolean, submit: (String) -> Boolean) {
   var pin by remember { mutableStateOf("") }; var error by remember { mutableStateOf<String?>(null) }
   Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
     Text(title, style = MaterialTheme.typography.headlineMedium); Text(copy, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(20.dp)); OutlinedTextField(pin, { pin = it.filter(Char::isDigit).take(8) }, label = { Text("Pincode (minimaal 6 cijfers)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }; Spacer(Modifier.height(14.dp))
-    Button(onClick = { if (pin.length < 6) error = "Kies minimaal 6 cijfers." else { error = "Onjuiste pincode."; submit(pin) } }, modifier = Modifier.fillMaxWidth()) { Text("Ontgrendelen") }
+    Button(onClick = { if (pin.length < 6) error = "Kies minimaal 6 cijfers." else { error = if (submit(pin)) null else "Onjuiste pincode." } }, modifier = Modifier.fillMaxWidth()) { Text(if (setup) "Pincode opslaan" else "Ontgrendelen") }
     if (allowBiometric && biometric != null) TextButton(onClick = biometric, modifier = Modifier.fillMaxWidth()) { Text("Gebruik vingerafdruk") }
   }
 }
