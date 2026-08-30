@@ -172,6 +172,7 @@ model User {
   createdQrBatches QrBatch[] @relation("QrBatchCreatedBy")
   boundQrTags QrTag[] @relation("QrTagBoundBy")
   confirmedPayments Payment[] @relation("PaymentConfirmedBy")
+  mobileSessions MobileSession[]
 
   @@index([role])
 }
@@ -204,6 +205,28 @@ model AuthToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, purpose])
+}
+
+// Separate from browser-based NextAuth sessions. Only hashes of opaque mobile
+// secrets are persisted, allowing remote device logout and refresh rotation.
+model MobileSession {
+  id                 String   @id @default(cuid())
+  userId             String
+  deviceIdHash       String
+  accessTokenHash    String   @unique
+  refreshTokenHash   String   @unique
+  accessExpiresAt    DateTime
+  refreshExpiresAt   DateTime
+  lastUsedAt         DateTime @default(now())
+  revokedAt          DateTime?
+  revokedReason      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([refreshExpiresAt])
 }
 
 model RateLimitEntry {

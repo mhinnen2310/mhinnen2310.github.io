@@ -42,7 +42,7 @@ export async function rateLimit(
 }
 
 export async function rateLimitRequest(
-  purpose: "login" | "password-reset" | "registration" | "form" | "newsletter",
+  purpose: "login" | "mobile-login" | "mobile-refresh" | "password-reset" | "registration" | "form" | "newsletter",
   identifiers: string[],
   limit: number,
   windowSeconds: number,

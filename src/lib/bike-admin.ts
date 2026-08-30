@@ -1,10 +1,13 @@
 import { prisma } from "./prisma";
-import type { Bike, BikeStatus } from "@prisma/client";
+import type { Bike, BikeStatus, Prisma } from "@prisma/client";
 import { canTransition } from "./bikes";
+import { BikeInputError, parseBikeCreate, withInitialBikeLifecycle } from "./bike-input";
 import { generateBikeDescription, defaultDescriptionContext } from "./descriptions";
 import { audit } from "./audit";
 import type { SessionUser } from "./auth";
 import { env } from "./env";
+import { nextBikeInventoryCodeInTx } from "./numbers";
+import { slugify } from "./utils";
 import { addWorkshopTask, completeWorkshopTask, getIntakeReadiness, getWorkshopReadiness, WorkshopError } from "./workshop";
 
 /**
@@ -146,6 +149,31 @@ export async function reserveBike(bikeId: string, input: ReserveInput, actor: Se
     throw error;
   }
   await audit("bike.reserved", "Bike", bikeId, { source: input.source }, actor);
+}
+
+/**
+ * Central intake creation used by both the browser admin and mobile adapters.
+ * The client can never choose the inventory number or initial lifecycle state.
+ */
+export async function createBikeDossier(body: Record<string, unknown>, actor: SessionUser) {
+  const data = parseBikeCreate(body);
+  const requestedSlug = typeof data.slug === "string" ? data.slug : null;
+  const bike = await prisma.$transaction(async (tx) => {
+    const inventoryCode = await nextBikeInventoryCodeInTx(tx);
+    const slug = slugify(requestedSlug ?? `${data.brand}-${data.model}-${inventoryCode}`);
+    if (!slug) throw new BikeInputError("De slug is ongeldig.");
+    return tx.bike.create({
+      data: {
+        ...(withInitialBikeLifecycle(data) as Prisma.BikeCreateInput),
+        inventoryCode,
+        slug,
+        intakeRecord: { create: {} },
+      },
+      select: { id: true, inventoryCode: true, status: true },
+    });
+  });
+  await audit("bike.created", "Bike", bike.id, { inventoryCode: bike.inventoryCode, status: bike.status }, actor);
+  return bike;
 }
 
 export async function unreserveBike(bikeId: string, actor: SessionUser | null, to: "AVAILABLE" | "READY" = "AVAILABLE"): Promise<void> {
