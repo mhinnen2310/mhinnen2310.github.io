@@ -63,7 +63,10 @@ class SessionStore(context: Context) {
     finally { chars.fill('\u0000') }
   }
   fun hasPin() = prefs.contains("pin_hash") && prefs.contains("pin_salt")
-  fun savePin(pin: String) { val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }; prefs.edit().putString("pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP)).putString("pin_hash", pinHash(pin, salt)).apply() }
+  // The first-run screen immediately checks hasPin() after this call. Commit
+  // synchronously so that Compose cannot render the setup screen once more
+  // while SharedPreferences.apply() is still queued.
+  fun savePin(pin: String) { val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }; prefs.edit().putString("pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP)).putString("pin_hash", pinHash(pin, salt)).commit() }
   fun verifyPin(pin: String): Boolean { val encoded = prefs.getString("pin_salt", null) ?: return false; val expected = prefs.getString("pin_hash", null) ?: return false; return java.security.MessageDigest.isEqual(expected.toByteArray(), pinHash(pin, Base64.decode(encoded, Base64.NO_WRAP)).toByteArray()) }
   fun clear() = prefs.edit().remove("access_token").remove("refresh_token").apply()
 }
