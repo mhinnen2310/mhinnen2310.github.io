@@ -177,11 +177,11 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
     }
   }
   LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    item { Text("Demi Fietsen", style = MaterialTheme.typography.headlineLarge) }
+    item { Text("Demi Fietsen", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary) }
     item { Text("Medewerkers", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    if (notices.isNotEmpty()) item { Card { Column(Modifier.padding(14.dp)) { Text("Meldingen", style = MaterialTheme.typography.titleMedium); notices.take(3).forEach { notice -> Text("• ${notice.optString("title")}", modifier = Modifier.padding(top = 6.dp)); Text(notice.optString("body"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
+    if (notices.isNotEmpty()) item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) { Column(Modifier.padding(14.dp)) { Text("Meldingen", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); notices.take(3).forEach { notice -> Text("• ${notice.optString("title")}", modifier = Modifier.padding(top = 6.dp)); Text(notice.optString("body"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
     noticeError?.let { problem -> item { Text("Meldingen konden niet worden geladen: $problem", color = MaterialTheme.colorScheme.error) } }
-    items(actions) { (label, route) -> Card(onClick = { open(route) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().padding(20.dp)) } }
+    items(actions) { (label, route) -> Card(onClick = { open(route) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth().padding(20.dp)) } }
     item { TextButton(onClick = logout) { Text("Uitloggen") } }
   }
 }

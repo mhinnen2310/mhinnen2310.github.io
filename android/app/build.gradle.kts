@@ -7,7 +7,9 @@ plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id(
 // is applied automatically and Firebase Messaging is fully initialized.
 if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
 
-val debugApiBaseUrl = providers.gradleProperty("apiBaseUrl").orElse("http://10.0.2.2:3001").get().trimEnd('/')
+// The staff APK is tested against the hosted preview by default. A local
+// backend remains possible with: ./gradlew assembleDebug -PapiBaseUrl=http://10.0.2.2:3001
+val debugApiBaseUrl = providers.gradleProperty("apiBaseUrl").orElse("https://demifietsen-preview.onrender.com").get().trimEnd('/')
 val debugApiUri = URI(debugApiBaseUrl)
 val debugApiScheme = debugApiUri.scheme ?: "http"
 val debugApiHost = debugApiUri.host ?: error("apiBaseUrl moet een geldige URL zijn: $debugApiBaseUrl")
