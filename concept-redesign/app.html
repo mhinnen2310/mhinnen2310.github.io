@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#123b32">
+    <title>Demi Fietsen — appconcept</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="app-body">
+    <div class="prototype-bar">Android-concept — geen echte gegevens of acties.</div>
+    <main class="phone-shell">
+      <header class="app-header"><div><p class="eyebrow">Maandag 31 augustus</p><h1>Goedemorgen, Jan</h1></div><button class="app-bell" data-modal="notifications" aria-label="Meldingen">3</button></header>
+      <section class="app-focus"><div><p class="eyebrow">Actie vereist</p><h2>Je hebt 3 open acties</h2><p>We beginnen met de belangrijkste.</p></div><button class="button button-light" data-modal="actions">Open lijst</button></section>
+      <section class="app-primary-actions"><button class="app-primary" data-modal="scan"><span class="app-icon">⌕</span><span><strong>QR scannen</strong><small>Open direct een fietsdossier</small></span><b>›</b></button><button class="app-primary secondary" data-modal="new-bike"><span class="app-icon">＋</span><span><strong>Nieuwe fiets innemen</strong><small>Start met de vaste checklist</small></span><b>›</b></button></section>
+      <section class="app-section"><div class="section-heading"><h2>Vandaag</h2><button class="text-button" data-modal="agenda">Agenda →</button></div><div class="app-timeline"><button class="timeline-row" data-modal="availability"><time>09:00</time><span class="dot dot-green"></span><span><strong>Vrij proefritblok</strong><small>Beschikbaar</small></span><b>›</b></button><button class="timeline-row" data-modal="appointment"><time>11:30</time><span class="dot dot-blue"></span><span><strong>Marianne de Vries</strong><small>Proefrit · Gazelle Ultimate</small></span><b>›</b></button><button class="timeline-row" data-modal="workshop"><time>14:00</time><span class="dot dot-amber"></span><span><strong>Werkplaats</strong><small>DF-000974 · remmen controleren</small></span><b>›</b></button></div></section>
+      <section class="app-section"><div class="section-heading"><h2>Open acties</h2><button class="text-button" data-modal="actions">Alles →</button></div><div class="app-task-list"><button class="app-task" data-modal="reservation"><span class="task-count">2</span><span><strong>Reserveringen verlopen</strong><small>Vrijgeven of klant bellen</small></span><b>›</b></button><button class="app-task" data-modal="payment"><span class="task-count">1</span><span><strong>Betaling controleren</strong><small>Order DF-2026-0142</small></span><b>›</b></button></div></section>
+      <section class="app-section app-settings-callout"><button class="app-task" data-modal="settings"><span class="app-icon">⚙</span><span><strong>Instellingen</strong><small>Pincode, biometrie en meldingen</small></span><b>›</b></button></section>
+      <nav class="app-bottom-nav" aria-label="Hoofdnavigatie"><button class="is-active" data-modal="home"><span>⌂</span>Vandaag</button><button data-modal="inventory"><span>▤</span>Voorraad</button><button data-modal="agenda"><span>▦</span>Agenda</button><button data-modal="settings"><span>⚙</span>Instellingen</button></nav>
+    </main>
+    <footer class="site-footer app-footer"><a href="index.html">← Websiteconcept</a><span>Grote knoppen · één volgende stap</span></footer>
+    <div class="modal-backdrop" data-modal-close hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="app-modal-title"><button class="modal-close" data-modal-close aria-label="Sluiten">×</button><p class="eyebrow" data-modal-kicker>Details</p><h2 id="app-modal-title" data-modal-title>Actie</h2><div class="modal-copy" data-modal-copy></div><div class="modal-actions"><button class="button button-secondary" data-modal-close>Terug</button><button class="button button-primary" data-modal-confirm>Gereed</button></div></div></div>
+    <script src="script.js"></script>
+  </body>
+</html>

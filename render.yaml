@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: demifietsen-preview
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run db:deploy && npm run db:bootstrap && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: DEPLOYMENT_MODE
+        value: preview
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: ENABLE_MOCK_PAYMENT_WEBHOOK
+        value: "1"
+      - key: EMAIL_TRANSPORT
+        value: console
+      - key: STORAGE_DRIVER
+        value: supabase
+      - key: SUPABASE_STORAGE_BUCKET
+        value: demifietsen-media
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: IP_HASH_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: PUBLIC_QR_BASE_URL
+        value: https://demifietsen.nl
+      - key: ANDROID_APP_CERT_SHA256
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
