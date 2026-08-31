@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const ADMIN_LINKS = [
   { href: "/admin", label: "Dashboard", short: "⌂" },
   { href: "/admin/fietsen", label: "Fietsen", short: "F" },
+  { href: "/admin/accu", label: "Accu’s", short: "⚡" },
   { href: "/admin/qr-labels", label: "QR-labels", short: "QR" },
   { href: "/admin/accessoires", label: "Accessoires", short: "A" },
   { href: "/admin/bestellingen", label: "Bestellingen", short: "B" },

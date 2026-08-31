@@ -44,6 +44,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -52,13 +53,14 @@ import java.util.UUID
 
 class MainActivity : FragmentActivity() {
   private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+  private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
   private var pendingQrToken by mutableStateOf<String?>(null)
 
   private fun qrTokenFrom(intent: Intent?): String? {
     if (intent?.action != Intent.ACTION_VIEW) return null
     val uri = intent.data ?: return null
-    val apiHost = android.net.Uri.parse(BuildConfig.API_BASE_URL).host
-    if (uri.scheme != "https" || uri.host != apiHost) return null
+    val apiUri = android.net.Uri.parse(BuildConfig.API_BASE_URL)
+    if (uri.scheme != apiUri.scheme || uri.host != apiUri.host) return null
     if (uri.pathSegments.size != 2 || uri.pathSegments[0] != "q") return null
     return uri.pathSegments[1].takeIf { it.matches(Regex("[A-Za-z0-9_-]{43}")) }
   }
@@ -67,6 +69,7 @@ class MainActivity : FragmentActivity() {
     super.onCreate(state)
     pendingQrToken = qrTokenFrom(intent)
     if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) cameraPermission.launch(Manifest.permission.CAMERA)
+    PushMessagingService.ensureNotificationChannel(this)
     setContent { DemiTheme { StaffRoot(SessionStore(this), BuildConfig.API_BASE_URL, this, pendingQrToken) { pendingQrToken = null } } }
   }
   override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); pendingQrToken = qrTokenFrom(intent) }
@@ -75,6 +78,11 @@ class MainActivity : FragmentActivity() {
     BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
       override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) { onSuccess() }
     }).authenticate(BiometricPrompt.PromptInfo.Builder().setTitle("Demi Fietsen").setSubtitle("Ontgrendel de medewerkersapp").setNegativeButtonText("Gebruik pincode").build())
+  }
+  fun requestNotificationPermission() {
+    if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+      notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
   }
 }
 
@@ -89,6 +97,12 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   // a separate Compose state for the setup completion so saving the first PIN
   // always triggers a recompose into StaffApp.
   var pinSetupComplete by remember { mutableStateOf(false) }
+  LaunchedEffect(signedIn) {
+    if (signedIn) {
+      activity.requestNotificationPermission()
+      PushRegistrar.registerCurrent(activity)
+    }
+  }
   LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (signedIn && sessions.hasPin()) unlocked = false }
   when {
     !signedIn -> LoginScreen(api, onLoggedIn = { signedIn = true; unlocked = !sessions.hasPin() })
@@ -137,7 +151,7 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
     "sales" -> SalesScreen(api) { screen = "home" }
     "reservations" -> ReservationsScreen(api) { screen = "home" }
     "ads" -> AdvertisementScreen(api) { screen = "home" }
-    "settings" -> SettingsScreen(sessions, activity) { screen = "home" }
+    "settings" -> SettingsScreen(api, sessions, activity) { screen = "home" }
     else -> if (screen.startsWith("bike:")) BikeDossierScreen(api, screen.removePrefix("bike:")) { screen = "inventory" } else HomeScreen(api, sessions, open = { screen = it }, logout = { onLogout() })
   }
 }
@@ -145,7 +159,19 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
 @Composable private fun HomeScreen(api: DemiApi, sessions: SessionStore, open: (String) -> Unit, logout: () -> Unit) {
   val actions = listOf("QR scannen" to "scan", "Nieuwe fiets" to "new-bike", "Voorraad" to "inventory", "Werkplaats" to "workshop", "Verkopen" to "sales", "Advertenties" to "ads", "Reserveringen" to "reservations", "Instellingen" to "settings")
   var notices by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var noticeError by remember { mutableStateOf<String?>(null) }
-  LaunchedEffect(Unit) { background { api.notifications() }.onSuccess { json -> val entries = json.optJSONArray("notifications"); notices = (0 until (entries?.length() ?: 0)).map { entries!!.getJSONObject(it) }.filter { sessions.notificationEnabled(it.optString("category")) } }.onFailure { noticeError = it.message } }
+  LaunchedEffect(Unit) {
+    while (true) {
+      background { api.notifications() }
+        .onSuccess { json ->
+          val entries = json.optJSONArray("notifications")
+          notices = (0 until (entries?.length() ?: 0)).map { entries!!.getJSONObject(it) }
+            .filter { sessions.notificationEnabled(it.optString("category")) }
+          noticeError = null
+        }
+        .onFailure { noticeError = it.message }
+      delay(60_000)
+    }
+  }
   LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     item { Text("Demi Fietsen", style = MaterialTheme.typography.headlineLarge) }
     item { Text("Medewerkers", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -254,9 +280,10 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { TextButton(onClick = back) { Text("← Terug") }; Text("Advertentie-assistent", style = MaterialTheme.typography.headlineMedium); Text("Genereert alleen kopieerbare tekst uit het fietsdossier; de app plaatst nooit zelfstandig advertenties.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(bikeId, { bikeId = it }, label = { Text("Fiets-id") }, modifier = Modifier.fillMaxWidth()); Button(enabled = !busy && bikeId.isNotBlank(), onClick = { busy = true; error = null; scope.launch { background { api.advertisement(bikeId) }.onSuccess { json -> val item = json.getJSONObject("listing"); listing = item.optString("title") + "\n\n" + item.optString("description") }.onFailure { error = it.message }; busy = false } }) { Text("Advertentietekst maken") }; if (busy) CircularProgressIndicator(); error?.let { Text(it, color = MaterialTheme.colorScheme.error) }; listing?.let { OutlinedTextField(it, {}, readOnly = true, label = { Text("Kopieer naar Marktplaats") }, modifier = Modifier.fillMaxWidth().weight(1f)) } }
 }
 
-@Composable private fun SettingsScreen(sessions: SessionStore, activity: MainActivity, back: () -> Unit) {
+@Composable private fun SettingsScreen(api: DemiApi, sessions: SessionStore, activity: MainActivity, back: () -> Unit) {
   var current by remember { mutableStateOf("") }; var next by remember { mutableStateOf("") }; var message by remember { mutableStateOf<String?>(null) }; var biometric by remember { mutableStateOf(sessions.biometricEnabled()) }
-  val categories = listOf("sales" to "Verkopen", "inventory" to "Lage voorraad en oude voorraad", "reservations" to "Reserveringen", "payments" to "Betalingen controleren")
+  val scope = rememberCoroutineScope()
+  val categories = listOf("sales" to "Verkopen", "inventory" to "Lage voorraad en oude voorraad", "reservations" to "Reserveringen", "payments" to "Betalingen controleren", "workshop" to "Werkplaats", "service" to "Nieuwe serviceverzoeken", "appointments" to "Nieuwe afspraken")
   val enabled = remember { mutableStateOf(categories.associate { it.first to sessions.notificationEnabled(it.first) }) }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { TextButton(onClick = back) { Text("← Terug") } }; item { Text("App-instellingen", style = MaterialTheme.typography.headlineMedium) }; item { Text("Pincode wijzigen", style = MaterialTheme.typography.titleLarge) }; item { OutlinedTextField(current, { current = it.filter(Char::isDigit).take(8) }, label = { Text("Huidige pincode") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(next, { next = it.filter(Char::isDigit).take(8) }, label = { Text("Nieuwe pincode (min. 6 cijfers)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()) }; item { Button(onClick = { message = if (next.length < 6) "Nieuwe pincode moet minimaal 6 cijfers hebben." else if (sessions.changePin(current, next)) { current = ""; next = ""; "Pincode gewijzigd." } else "Huidige pincode is onjuist." }) { Text("Pincode wijzigen") } }; item { Text("Biometrie", style = MaterialTheme.typography.titleLarge) }; item { Button(onClick = { val available = BiometricManager.from(activity).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS; if (!available) message = "Biometrie is niet beschikbaar op dit toestel." else { biometric = !biometric; sessions.setBiometricEnabled(biometric); message = if (biometric) "Vingerafdruk ontgrendeling ingeschakeld." else "Vingerafdruk ontgrendeling uitgeschakeld." } }) { Text(if (biometric) "Biometrie uitschakelen" else "Biometrie inschakelen") } }; item { Text("Meldingen in de app", style = MaterialTheme.typography.titleLarge) }; items(categories) { (key, label) -> val isOn = enabled.value[key] == true; Card(onClick = { enabled.value = enabled.value + (key to !isOn); sessions.setNotificationEnabled(key, !isOn) }) { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Text(if (isOn) "Aan" else "Uit") } } }; message?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } } }
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { item { TextButton(onClick = back) { Text("← Terug") } }; item { Text("App-instellingen", style = MaterialTheme.typography.headlineMedium) }; item { Text("Pincode wijzigen", style = MaterialTheme.typography.titleLarge) }; item { OutlinedTextField(current, { current = it.filter(Char::isDigit).take(8) }, label = { Text("Huidige pincode") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(next, { next = it.filter(Char::isDigit).take(8) }, label = { Text("Nieuwe pincode (min. 6 cijfers)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth()) }; item { Button(onClick = { message = if (next.length < 6) "Nieuwe pincode moet minimaal 6 cijfers hebben." else if (sessions.changePin(current, next)) { current = ""; next = ""; "Pincode gewijzigd." } else "Huidige pincode is onjuist." }) { Text("Pincode wijzigen") } }; item { Text("Biometrie", style = MaterialTheme.typography.titleLarge) }; item { Button(onClick = { val available = BiometricManager.from(activity).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS; if (!available) message = "Biometrie is niet beschikbaar op dit toestel." else { biometric = !biometric; sessions.setBiometricEnabled(biometric); message = if (biometric) "Vingerafdruk ontgrendeling ingeschakeld." else "Vingerafdruk ontgrendeling uitgeschakeld." } }) { Text(if (biometric) "Biometrie uitschakelen" else "Biometrie inschakelen") } }; item { Text("Push- en in-app-meldingen", style = MaterialTheme.typography.titleLarge) }; item { Text("Pushmeldingen worden per categorie naar dit toestel gestuurd. De wijzigingen worden direct gesynchroniseerd.", color = MaterialTheme.colorScheme.onSurfaceVariant) }; item { Button(onClick = { message = "Testmelding wordt verzonden…"; scope.launch(Dispatchers.IO) { val result = runCatching { api.testPushNotification() }; withContext(Dispatchers.Main) { message = result.fold({ if (it.optBoolean("ok")) "Testmelding verzonden." else "Geen actief push-token op dit toestel." }, { it.message ?: "Testmelding kon niet worden verzonden." }) } } }) { Text("Test pushmelding") } }; items(categories) { (key, label) -> val isOn = enabled.value[key] == true; Card(onClick = { val nextValue = !isOn; enabled.value = enabled.value + (key to nextValue); sessions.setNotificationEnabled(key, nextValue); message = "Meldingvoorkeur opgeslagen."; scope.launch(Dispatchers.IO) { runCatching { api.syncPushPreferences() } } }) { Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Text(if (isOn) "Aan" else "Uit") } } }; message?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } } }
 }

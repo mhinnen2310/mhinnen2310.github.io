@@ -9,7 +9,7 @@ type Day = { date: string; slots: Array<{ value: string; label: string }> };
 const WEEKDAYS = ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"];
 const inputClass = "rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink";
 
-export function AdminAvailabilityCalendar({ rules, overrides, availability, today }: { rules: Rule[]; overrides: Override[]; availability: Day[]; today: string }) {
+export function AdminAvailabilityCalendar({ rules, overrides, availability, today, showCalendar = true }: { rules: Rule[]; overrides: Override[]; availability: Day[]; today: string; showCalendar?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,15 +41,15 @@ export function AdminAvailabilityCalendar({ rules, overrides, availability, toda
   const calendarHeaders = calendarDays.slice(0, 7).map((item) => WEEKDAYS[new Date(`${item.key}T00:00:00.000Z`).getUTCDay()]);
 
   return <section className="mt-6 rounded-xl border border-line bg-card p-5">
-    <h3 className="text-lg font-semibold text-ink">Beschikbaarheid proefritten</h3>
+    <h3 className="text-lg font-semibold text-ink">Beschikbaarheidsregels</h3>
     <p className="mt-1 text-sm text-ink-soft">De agenda is standaard gesloten. Losse datums overschrijven de vaste uren van die weekdag.</p>
     {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-state-error">{error}</p>}
-    <div className="mt-5 overflow-x-auto">
+    {showCalendar && <div className="mt-5 overflow-x-auto">
       <h4 className="mb-2 font-semibold text-ink">Agenda komende 6 weken</h4>
       <div className="grid min-w-[760px] grid-cols-7 gap-1 text-center text-xs text-ink-faint">{calendarHeaders.map((label, index) => <div key={`${label}-${index}`} className="pb-1 capitalize">{index === 0 ? `${label} (vandaag)` : label}</div>)}
         {calendarDays.map((item) => <div key={item.key} className={`min-h-24 rounded-lg border p-2 text-left ${item.slots.length ? "border-brand-200 bg-brand-50" : "border-line bg-surface"}`}><p className="font-semibold text-ink">{item.day} <span className="font-normal text-ink-faint">{item.key.slice(5)}</span></p>{item.slots.length ? <div className="mt-1 space-y-1">{item.slots.map((slot) => <p key={slot.value} className="rounded bg-card px-1 py-0.5 text-brand-800">{slot.label}</p>)}</div> : <p className="mt-2 text-ink-faint">gesloten</p>}</div>)}
       </div>
-    </div>
+    </div>}
     <div className="mt-5 grid gap-6 xl:grid-cols-2">
       <div><h4 className="font-semibold text-ink">Vaste weekdagen</h4>
         <form onSubmit={submitRule} className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">

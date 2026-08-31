@@ -28,6 +28,7 @@ type AdminBike = {
   status: BikeStatus; publishedAt: Date | null; soldAt: Date | null; soldOrderNumber: string | null; realisedSalePriceCents: number | null; createdAt: Date;
   images: BikeImage[]; serviceTasks: ServiceTask[]; priceHistory: PriceHistory[];
   intakeRecord: { frameSerialPresent: boolean; keysPresent: boolean; chargerPresent: boolean; batteryPresent: boolean; defectsAssessed: boolean; knownDefects: string | null; theftCheckCompleted: boolean; theftCheckDate: Date | null; theftCheckResult: string | null } | null;
+  currentBattery: { id: string; assetCode: string; status: string; manufacturer: string | null; model: string | null; serialNumber: string | null; nominalWh: number | null } | null;
 };
 
 type Margin = { totalCostCents: number; expectedGrossMarginCents: number | null; expectedMarginPercent: number | null; realisedSalePriceCents: number | null; grossMarginCents: number | null; marginPercent: number | null };
@@ -41,6 +42,16 @@ const FEATURES = [
 ] as const;
 
 const editableStatuses: Array<[BikeStatus, string]> = [["INTAKE", "Intake"], ["WORKSHOP", "Werkplaats"], ["READY", "Klaar"], ["AVAILABLE", "Beschikbaar (publiceren)"], ["ARCHIVED", "Gearchiveerd"]];
+
+type IntakeTab = "overview" | "specs" | "battery" | "condition" | "costs" | "sale";
+const intakeTabs: Array<[IntakeTab, string, string]> = [
+  ["overview", "Overzicht", "Basis en intakecontrole"],
+  ["specs", "Specificaties", "Maatvoering en uitrusting"],
+  ["battery", "Accu", "Elektrisch systeem en asset"],
+  ["condition", "Conditie", "Staat en notities"],
+  ["costs", "Kosten", "Inkoop en marge"],
+  ["sale", "Verkoop", "Prijs en advertentie"],
+];
 
 function euroToCents(value: FormDataEntryValue | null): number | null {
   const raw = typeof value === "string" ? value.trim().replace(",", ".") : "";
@@ -86,6 +97,28 @@ function Section({ title, children, hint }: { title: string; hint?: string; chil
 
 function ErrorNotice({ message }: { message: string | null }) {
   return message ? <p role="alert" className="rounded-lg border border-state-error/30 bg-red-50 px-3 py-2 text-sm text-state-error">{message}</p> : null;
+}
+
+function IntakeTabs({ active, onChange }: { active: IntakeTab; onChange: (tab: IntakeTab) => void }) {
+  return <nav aria-label="Intake-onderdelen" className="rounded-xl border border-line bg-surface p-2"><div className="grid gap-1 sm:grid-cols-3 lg:grid-cols-6">{intakeTabs.map(([key, label, hint]) => <button key={key} type="button" onClick={() => onChange(key)} aria-current={active === key ? "page" : undefined} className={`rounded-lg px-3 py-2 text-left transition-colors ${active === key ? "bg-brand-700 text-white" : "text-ink-soft hover:bg-card"}`}><span className="block text-sm font-semibold">{label}</span><span className={`block text-xs ${active === key ? "text-white/75" : "text-ink-faint"}`}>{hint}</span></button>)}</div></nav>;
+}
+
+function IntakeProgress({ bike, intakeReadiness, workshopReadiness, onChange }: { bike: AdminBike; intakeReadiness: { ready: boolean; missing: string[] }; workshopReadiness: { ready: boolean; missing: string[] }; onChange: (tab: IntakeTab) => void }) {
+  const items: Array<{ tab: IntakeTab; label: string; detail: string; ready: boolean }> = [
+    { tab: "overview", label: "Intake", detail: intakeReadiness.ready ? "Compleet" : `${intakeReadiness.missing.length} openstaand`, ready: intakeReadiness.ready },
+    { tab: "specs", label: "Specificaties", detail: bike.brand && bike.model ? "Ingevuld" : "Aanvullen", ready: Boolean(bike.brand && bike.model && bike.bikeType) },
+    { tab: "battery", label: "Accu", detail: bike.currentBattery ? `${bike.currentBattery.assetCode} gekoppeld` : bike.batteryWh ? "Legacy gegevens" : "Nog registreren", ready: Boolean(bike.currentBattery || !bike.isElectric) },
+    { tab: "condition", label: "Conditie", detail: bike.conditionGrade ? "Ingevuld" : "Aanvullen", ready: Boolean(bike.conditionGrade) },
+    { tab: "costs", label: "Kosten", detail: bike.acquisitionCostCents != null ? "Ingevuld" : "Aanvullen", ready: bike.acquisitionCostCents != null },
+    { tab: "sale", label: "Verkoop", detail: bike.priceCents > 0 ? "Prijs staat" : "Nog geen prijs", ready: bike.priceCents > 0 },
+  ];
+  return <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{items.map((item) => <button key={item.tab} type="button" onClick={() => onChange(item.tab)} className="flex items-center gap-3 rounded-lg border border-line bg-card px-3 py-2 text-left hover:border-brand-300"><span aria-hidden className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${item.ready ? "bg-state-success/15 text-state-success" : "bg-state-warning/15 text-state-warning"}`}>{item.ready ? "✓" : "!"}</span><span><span className="block text-xs font-semibold uppercase tracking-wide text-ink-faint">{item.label}</span><span className="block text-sm text-ink-soft">{item.detail}</span></span></button>)}</div>;
+}
+
+function FeatureChips({ selected }: { selected: string[] }) {
+  const [values, setValues] = useState(selected);
+  function toggle(key: string) { setValues((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]); }
+  return <div className="mt-2 flex flex-wrap gap-2">{FEATURES.map(([key, label]) => <button key={key} type="button" aria-pressed={values.includes(key)} onClick={() => toggle(key)} className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${values.includes(key) ? "border-brand-700 bg-brand-50 text-brand-800" : "border-line bg-card text-ink-soft hover:bg-surface"}`}>{values.includes(key) && <span aria-hidden className="mr-1">✓</span>}{label}{values.includes(key) && <input type="hidden" name="features" value={key} />}</button>)}</div>;
 }
 
 function BooleanField({ label, name, value, required = false }: { label: string; name: string; value: boolean | null; required?: boolean }) {

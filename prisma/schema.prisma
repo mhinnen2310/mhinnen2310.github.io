@@ -36,6 +36,17 @@ enum BikeStatus {
   ARCHIVED
 }
 
+// A battery is its own physical asset. It can move between bikes while its
+// measurements and repair history stay intact.
+enum BatteryStatus {
+  INTAKE
+  WORKSHOP
+  READY
+  STOCK
+  ASSIGNED
+  RETIRED
+}
+
 enum LineKind {
   UNIQUE_BIKE
   STOCK_ITEM
@@ -167,16 +178,20 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  addresses             UserAddress[]
-  orders                Order[]
-  authTokens            AuthToken[]
-  auditLogs             AuditLog[]
-  completedServiceTasks ServiceTask[]          @relation("ServiceTaskCompletedBy")
-  createdQrBatches      QrBatch[]              @relation("QrBatchCreatedBy")
-  boundQrTags           QrTag[]                @relation("QrTagBoundBy")
-  confirmedPayments     Payment[]              @relation("PaymentConfirmedBy")
-  mobileSessions        MobileSession[]
-  settingsRevisions     SiteSettingsRevision[] @relation("SiteSettingsRevisionChangedBy")
+  addresses               UserAddress[]
+  orders                  Order[]
+  authTokens              AuthToken[]
+  auditLogs               AuditLog[]
+  completedServiceTasks   ServiceTask[]            @relation("ServiceTaskCompletedBy")
+  createdQrBatches        QrBatch[]                @relation("QrBatchCreatedBy")
+  boundQrTags             QrTag[]                  @relation("QrTagBoundBy")
+  confirmedPayments       Payment[]                @relation("PaymentConfirmedBy")
+  mobileSessions          MobileSession[]
+  pushDevices             PushDevice[]
+  pushNotificationCursors PushNotificationCursor[]
+  settingsRevisions       SiteSettingsRevision[]   @relation("SiteSettingsRevisionChangedBy")
+  batteryAssignments      BatteryAssignment[]      @relation("BatteryAssignmentChangedBy")
+  completedBatteryRepairs BatteryRepair[]          @relation("BatteryRepairCompletedBy")
 
   @@index([role])
 }
@@ -231,6 +246,44 @@ model MobileSession {
 
   @@index([userId, revokedAt])
   @@index([refreshExpiresAt])
+}
+
+// FCM registration tokens are encrypted at rest. The hash is only used for
+// lookup/upsert and the ciphertext is decrypted briefly by the server when a
+// push is delivered. A user may have several phones/tablets at once.
+model PushDevice {
+  id              String   @id @default(cuid())
+  userId          String
+  tokenHash       String   @unique
+  tokenCiphertext String
+  platform        String   @default("android")
+  deviceIdHash    String?
+  enabled         Boolean  @default(true)
+  categories      Json?
+  lastSeenAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled])
+  @@index([lastSeenAt])
+}
+
+// Prevents a scheduled maintenance request from sending the same unchanged
+// operational alert on every run. The cursor is reset automatically when the
+// current snapshot changes (including when a count returns to zero).
+model PushNotificationCursor {
+  id           String   @id @default(cuid())
+  userId       String
+  category     String
+  snapshotHash String
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([updatedAt])
 }
 
 model RateLimitEntry {
@@ -349,6 +402,8 @@ model Bike {
   electricalNotes   String?
 
   // Battery (estimates are explicitly estimates, not guarantees)
+  // Legacy snapshot fields remain for old imports, sale snapshots and public
+  // pages. New intake work uses the independent Battery asset below.
   batteryType           String?
   batteryManufacturer   String?
   batteryModel          String?
@@ -418,6 +473,10 @@ model Bike {
   warrantyEnd            DateTime?
   realisedSalePriceCents Int?
 
+  // The currently installed physical battery. A battery may be installed in
+  // only one bike at a time; BatteryAssignment keeps the complete history.
+  currentBatteryId String? @unique
+
   // Migration metadata (old Shopify data is never destroyed)
   shopifySourceId     String? @unique
   originalDescription String?
@@ -426,21 +485,111 @@ model Bike {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  images          BikeImage[]
-  serviceTasks    ServiceTask[]
-  reservations    Reservation[]
-  orderLines      OrderLine[]
-  cartLines       CartLine[]
-  priceHistory    PriceHistoryEntry[]
-  appointments    Appointment[]
-  serviceRequests ServiceRequest[]
-  warrantyRecords WarrantyRecord[]
-  intakeRecord    BikeIntake?
-  qrTag           QrTag?
+  images             BikeImage[]
+  serviceTasks       ServiceTask[]
+  reservations       Reservation[]
+  orderLines         OrderLine[]
+  cartLines          CartLine[]
+  priceHistory       PriceHistoryEntry[]
+  appointments       Appointment[]
+  serviceRequests    ServiceRequest[]
+  warrantyRecords    WarrantyRecord[]
+  intakeRecord       BikeIntake?
+  qrTag              QrTag?
+  currentBattery     Battery?            @relation("BikeCurrentBattery", fields: [currentBatteryId], references: [id], onDelete: SetNull)
+  batteryAssignments BatteryAssignment[]
 
   @@index([status, createdAt])
   @@index([brand, model])
   @@index([status, priceCents])
+  @@index([currentBatteryId])
+}
+
+// ---------------------------------------------------------------------------
+// BATTERY — one physical, separately repairable battery asset
+// ---------------------------------------------------------------------------
+
+model Battery {
+  id                   String        @id @default(cuid())
+  assetCode            String        @unique // e.g. ACC-000001
+  serialNumber         String?
+  type                 String?
+  manufacturer         String?
+  model                String?
+  voltage              Int?
+  nominalAh            Decimal?      @db.Decimal(5, 2)
+  nominalWh            Int?
+  measuredAh           Decimal?      @db.Decimal(5, 2)
+  measuredWh           Int?
+  sohPercent           Decimal?      @db.Decimal(5, 2)
+  testDate             DateTime?
+  testMethod           String?
+  cycleCount           Int?
+  condition            String?
+  reconditioned        Boolean?
+  revisionDate         DateTime?
+  rangeMinKm           Int?
+  rangeMaxKm           Int?
+  warrantyMonths       Int?
+  notes                String?
+  labelPhotoKey        String?
+  acquisitionCostCents Int?
+  partsCostCents       Int           @default(0)
+  repairCostCents      Int           @default(0)
+  labourMinutes        Int?
+  status               BatteryStatus @default(INTAKE)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  currentBike Bike?               @relation("BikeCurrentBattery")
+  assignments BatteryAssignment[]
+  repairs     BatteryRepair[]
+
+  @@index([status, updatedAt])
+  @@index([manufacturer, model])
+  @@index([serialNumber])
+}
+
+// Every attach/detach is retained, so a reused battery remains traceable.
+model BatteryAssignment {
+  id           String    @id @default(cuid())
+  batteryId    String
+  bikeId       String
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+  note         String?
+  changedById  String?
+
+  battery   Battery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  bike      Bike    @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("BatteryAssignmentChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([batteryId, assignedAt])
+  @@index([bikeId, assignedAt])
+}
+
+// Battery-specific repair work is separate from the bicycle workshop log.
+model BatteryRepair {
+  id              String    @id @default(cuid())
+  batteryId       String
+  description     String
+  partName        String?
+  partCostCents   Int?
+  quantity        Int       @default(1)
+  labourMinutes   Int?
+  labourCostCents Int?
+  internalNotes   String?
+  completed       Boolean   @default(false)
+  doneDate        DateTime?
+  completedById   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  battery     Battery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  completedBy User?   @relation("BatteryRepairCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@index([batteryId, completed])
+  @@index([completedById])
 }
 
 model BikeImage {

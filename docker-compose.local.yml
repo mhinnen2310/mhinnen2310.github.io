@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: demifietsen
+      POSTGRES_USER: demifietsen
+      POSTGRES_PASSWORD: demifietsen-local
+    ports:
+      - "54329:5432"
+    volumes:
+      - demifietsen-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demifietsen -d demifietsen"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "npm run db:deploy && npm run dev"
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: development
+      DEPLOYMENT_MODE: development
+      AUTH_TRUST_HOST: "true"
+      DATABASE_URL: postgresql://demifietsen:demifietsen-local@db:5432/demifietsen
+      DIRECT_URL: postgresql://demifietsen:demifietsen-local@db:5432/demifietsen
+      AUTH_SECRET: local-only-change-me-to-a-long-random-value
+      IP_HASH_SECRET: local-only-change-me-to-a-different-long-random-value
+      CRON_SECRET: local-only-cron-secret
+      NEXT_PUBLIC_SITE_URL: http://localhost:3001
+      APP_BASE_URL: http://localhost:3001
+      PUBLIC_QR_BASE_URL: http://localhost:3001
+      ANDROID_APP_CERT_SHA256: ""
+      PAYMENT_PROVIDER: mock
+      ENABLE_MOCK_PAYMENT_WEBHOOK: "1"
+      EMAIL_TRANSPORT: console
+      EMAIL_FROM: Demi Fietsen <noreply@localhost>
+      STORAGE_DRIVER: local
+      MEDIA_STORAGE_PATH: /app/storage/media
+      RESERVATION_TTL_MINUTES: "30"
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+    volumes:
+      - ./storage:/app/storage
+
+  maintenance:
+    image: curlimages/curl:8.10.1
+    depends_on:
+      - web
+    environment:
+      CRON_SECRET: local-only-cron-secret
+    command: >-
+      sh -c 'until curl -fsS -X POST -H "x-cron-secret: $$CRON_SECRET"
+      http://web:3000/api/maintenance/push-notifications; do sleep 5; done;
+      while true; do curl -fsS -X POST -H "x-cron-secret: $$CRON_SECRET"
+      http://web:3000/api/maintenance/sweep >/dev/null || true; sleep 60; done'
+
+volumes:
+  demifietsen-db:

@@ -1,19 +1,7 @@
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
+import { hasValidCronSecret } from "@/lib/cron";
 import { sweepExpiredOrders } from "@/lib/orders";
-
-function hasValidCronSecret(req: Request): boolean {
-  if (!env.cronSecret) return false;
-  const authorization = req.headers.get("authorization");
-  const supplied = authorization?.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length)
-    : req.headers.get("x-cron-secret");
-  if (!supplied) return false;
-  const expectedBuffer = Buffer.from(env.cronSecret);
-  const suppliedBuffer = Buffer.from(supplied);
-  return suppliedBuffer.length === expectedBuffer.length && timingSafeEqual(suppliedBuffer, expectedBuffer);
-}
+import { dispatchOperationalPushes } from "@/lib/push";
 
 async function runSweep(req: Request) {
   if (!hasValidCronSecret(req)) {
@@ -21,8 +9,12 @@ async function runSweep(req: Request) {
     // uses to callers without the deployment secret.
     return NextResponse.json({ error: "Niet gevonden." }, { status: 404 });
   }
+  // Dispatch before sweeping so an expired checkout reservation can still be
+  // surfaced as an actionable alert. The dedicated push endpoint can also be
+  // scheduled independently when a deployment has a separate cron job.
+  const pushes = await dispatchOperationalPushes();
   const result = await sweepExpiredOrders();
-  return NextResponse.json({ ok: true, ...result, time: new Date().toISOString() }, { headers: { "cache-control": "no-store" } });
+  return NextResponse.json({ ok: true, ...result, pushes, time: new Date().toISOString() }, { headers: { "cache-control": "no-store" } });
 }
 
 export const GET = runSweep;

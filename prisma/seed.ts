@@ -32,6 +32,7 @@ import { processImageUpload } from "../src/lib/images";
 import { generateBikeDescription, defaultDescriptionContext } from "../src/lib/descriptions";
 import { processProviderWebhook } from "../src/lib/checkout";
 import { nextOrderNumberInTx } from "../src/lib/numbers";
+import { nextBatteryAssetCodeInTx } from "../src/lib/numbers";
 import { DEFAULT_DELIVERY } from "../src/lib/delivery";
 import { DEFAULT_WARRANTY_CONFIG } from "../src/lib/warranty";
 import { DEFAULT_TAX_CONFIG } from "../src/lib/tax";
@@ -544,6 +545,9 @@ async function wipe() {
     "stockMovement",
     "priceHistoryEntry",
     "serviceTask",
+    "batteryRepair",
+    "batteryAssignment",
+    "battery",
     "reservation",
     "cartLine",
     "cart",
@@ -735,6 +739,28 @@ async function main() {
       });
     }
     console.log(`  • ${seed.code} — ${seed.brand} ${seed.model} (${seed.status})${cover ? "" : " (geen foto)"}`);
+  }
+
+  // --- Independent battery assets -------------------------------------------
+  // Seed one reusable asset for every bike that already has legacy battery
+  // measurements. The old Bike columns remain the public/sale snapshot.
+  for (const [code, bikeId] of bikeIds) {
+    const source = await prisma.bike.findUnique({ where: { id: bikeId } });
+    if (!source || !source.isElectric || ![source.batteryType, source.batteryManufacturer, source.batteryModel, source.batteryWh, source.batterySerialRef].some(Boolean)) continue;
+    const battery = await prisma.$transaction(async (tx) => {
+      const assetCode = await nextBatteryAssetCodeInTx(tx);
+      const created = await tx.battery.create({ data: {
+        assetCode, type: source.batteryType, manufacturer: source.batteryManufacturer, model: source.batteryModel, voltage: source.batteryVoltage,
+        nominalAh: source.batteryAh, nominalWh: source.batteryWh, measuredAh: source.batteryMeasuredAh, measuredWh: source.batteryMeasuredWh,
+        sohPercent: source.batterySohPercent, testDate: source.batteryTestDate, testMethod: source.batteryTestMethod, cycleCount: source.batteryCycleCount,
+        condition: source.batteryCondition, reconditioned: source.batteryReconditioned, revisionDate: source.batteryRevisionDate, rangeMinKm: source.rangeMinKm,
+        rangeMaxKm: source.rangeMaxKm, serialNumber: source.batterySerialRef, warrantyMonths: source.batteryWarrantyMonths, status: "ASSIGNED",
+      } });
+      await tx.bike.update({ where: { id: bikeId }, data: { currentBatteryId: created.id } });
+      await tx.batteryAssignment.create({ data: { batteryId: created.id, bikeId, note: "DEV-seed: overgenomen uit fietsgegevens." } });
+      return created;
+    });
+    console.log(`  • ${battery.assetCode} — gekoppeld aan fiets ${code}`);
   }
 
   // --- Products + images + stock history --------------------------------------

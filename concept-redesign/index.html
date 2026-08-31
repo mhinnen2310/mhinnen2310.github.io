@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Demi Fietsen — beheerconcept</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="prototype-bar">Concept — dit is een klikbaar ontwerp, geen productieomgeving.</div>
+    <header class="site-header">
+      <a class="brand" href="#vandaag" aria-label="Demi Fietsen vandaag">
+        <span class="brand-mark">DF</span><span><strong>Demi Fietsen</strong><small>rust in je werkdag</small></span>
+      </a>
+      <button class="mobile-menu" data-menu-toggle aria-label="Menu openen">Menu</button>
+      <nav class="main-nav" data-menu>
+        <a class="nav-link is-active" href="#vandaag" data-view="vandaag">Vandaag</a>
+        <a class="nav-link" href="#voorraad" data-view="voorraad">Voorraad</a>
+        <a class="nav-link" href="#agenda" data-view="agenda">Agenda</a>
+        <a class="nav-link" href="#klanten" data-view="klanten">Klanten</a>
+        <a class="nav-link" href="#instellingen" data-view="instellingen">Instellingen</a>
+      </nav>
+      <div class="header-actions"><button class="button button-primary" data-modal="new-bike">+ Nieuwe fiets</button><button class="avatar" data-modal="profile" aria-label="Profiel van Jan">JV</button></div>
+    </header>
+
+    <main class="shell">
+      <section class="view is-visible" data-panel="vandaag">
+        <div class="page-heading"><div><p class="eyebrow">Maandag 31 augustus 2026</p><h1>Goedemorgen, Jan</h1><p class="lede">Hier zie je alleen wat vandaag aandacht nodig heeft.</p></div><button class="button button-secondary" data-modal="help">? Uitleg</button></div>
+        <section class="action-hero" aria-labelledby="action-title">
+          <div><p class="eyebrow">Actie vereist</p><h2 id="action-title">5 dingen om vandaag op te pakken</h2><p>Werk ze één voor één af. De lijst verdwijnt vanzelf.</p></div><button class="button button-light" data-modal="actions">Bekijk alles</button>
+        </section>
+        <div class="action-grid">
+          <button class="action-card warning" data-modal="reservation"><span class="action-number">2</span><span><strong>Reserveringen verlopen</strong><small>Vrijgeven of klant bellen</small></span><span class="chevron">›</span></button>
+          <button class="action-card warning" data-modal="payment"><span class="action-number">1</span><span><strong>Betaling controleren</strong><small>Order DF-2026-0142</small></span><span class="chevron">›</span></button>
+          <button class="action-card neutral" data-modal="workshop"><span class="action-number">2</span><span><strong>Werkplaats afronden</strong><small>Fietsen staan nog niet klaar</small></span><span class="chevron">›</span></button>
+        </div>
+        <div class="metrics-row">
+          <article class="metric"><span>Beschikbaar</span><strong>18 fietsen</strong><small>+3 deze week</small></article><article class="metric"><span>Omzet deze maand</span><strong>€ 12.480</strong><small>6 verkopen</small></article><article class="metric"><span>Gem. marge</span><strong>€ 418</strong><small>op verkochte fietsen</small></article><article class="metric"><span>Langste voorraad</span><strong>74 dagen</strong><small>2 fietsen bekijken</small></article>
+        </div>
+        <div class="two-columns">
+          <section class="panel"><div class="panel-heading"><div><p class="eyebrow">Snel starten</p><h2>Wat wil je doen?</h2></div></div><div class="quick-actions"><button class="quick-action" data-modal="scan"><span class="quick-icon">⌕</span><span><strong>QR scannen</strong><small>Open een fietsdossier</small></span></button><button class="quick-action" data-modal="new-bike"><span class="quick-icon">＋</span><span><strong>Fiets innemen</strong><small>Start een nieuwe intake</small></span></button><button class="quick-action" data-view-target="agenda"><span class="quick-icon">▦</span><span><strong>Agenda openen</strong><small>Beschikbaar, afspraken en service</small></span></button><button class="quick-action" data-view-target="voorraad"><span class="quick-icon">▤</span><span><strong>Voorraad zoeken</strong><small>Zoek op merk of nummer</small></span></button></div></section>
+          <section class="panel"><div class="panel-heading"><div><p class="eyebrow">Vandaag</p><h2>Gedeelde agenda</h2></div><button class="text-button" data-view-target="agenda">Volledige agenda →</button></div><div class="mini-calendar"><div class="calendar-day"><span>09:00</span><b class="dot dot-green"></b><p>Beschikbaar</p><small>proefritblok</small></div><div class="calendar-day"><span>11:30</span><b class="dot dot-blue"></b><p>Mevrouw De Vries</p><small>proefrit · Gazelle</small></div><div class="calendar-day"><span>14:00</span><b class="dot dot-amber"></b><p>Werkplaats</p><small>DF-000974 · remmen</small></div></div></section>
+        </div>
+      </section>
+
+      <section class="view" data-panel="voorraad"><div class="page-heading"><div><p class="eyebrow">Overzicht</p><h1>Voorraad</h1><p class="lede">Zoek één fiets. Klik daarna op de grote blauwe knop.</p></div><button class="button button-primary" data-modal="new-bike">+ Nieuwe fiets</button></div><div class="toolbar"><label class="search-field"><span>⌕</span><input type="search" data-filter-input placeholder="Zoek merk, model of DF-nummer" aria-label="Zoek voorraad"></label><select data-filter-select aria-label="Filter voorraad"><option value="all">Alles (24)</option><option value="available">Beschikbaar (18)</option><option value="workshop">Werkplaats (4)</option><option value="reserved">Gereserveerd (2)</option></select></div><div class="bike-list" data-filter-list><button class="bike-row" data-filter="available gazelle ultimate c8 df-000974" data-modal="bike"><span class="bike-thumb bike-thumb-green">G</span><span class="bike-main"><strong>Gazelle Ultimate C8</strong><small>DF-000974 · gereed · € 1.499</small></span><span class="status-pill status-green">Beschikbaar</span><span class="chevron">›</span></button><button class="bike-row" data-filter="workshop sparta d-fox df-000981" data-modal="bike"><span class="bike-thumb bike-thumb-navy">S</span><span class="bike-main"><strong>Sparta d-Rule M8b</strong><small>DF-000981 · accu testen · € 1.249</small></span><span class="status-pill status-amber">Werkplaats</span><span class="chevron">›</span></button><button class="bike-row" data-filter="reserved batavus diva df-000962" data-modal="bike"><span class="bike-thumb bike-thumb-sand">B</span><span class="bike-main"><strong>Batavus Dinsdag Exclusive</strong><small>DF-000962 · reservering tot 16:30</small></span><span class="status-pill status-blue">Gereserveerd</span><span class="chevron">›</span></button></div><p class="empty-state" data-empty hidden>Geen fiets gevonden. Probeer een DF-nummer, merk of model.</p></section>
+
+      <section class="view" data-panel="agenda"><div class="page-heading"><div><p class="eyebrow">Eén plek</p><h1>Gedeelde agenda</h1><p class="lede">Groen is vrij, blauw is een klant, amber is service.</p></div><div class="heading-actions"><button class="button button-secondary">‹ Vorige week</button><button class="button button-secondary">Vandaag</button><button class="button button-secondary">Volgende week ›</button></div></div><div class="legend"><span><i class="dot dot-green"></i>Beschikbaar</span><span><i class="dot dot-blue"></i>Afspraak</span><span><i class="dot dot-amber"></i>Service / werkplaats</span></div><div class="calendar-grid"><div class="calendar-head"><span>ma 31</span><span>di 1</span><span>wo 2</span><span>do 3</span><span>vr 4</span></div><div class="calendar-col today"><small>Vandaag</small><button class="calendar-event event-green" data-modal="availability"><b>09:00</b> Beschikbaar</button><button class="calendar-event event-blue" data-modal="appointment"><b>11:30</b> De Vries</button><button class="calendar-event event-amber" data-modal="workshop"><b>14:00</b> DF-000974</button></div><div class="calendar-col"><small>1 september</small><button class="calendar-event event-green"><b>10:00</b> Beschikbaar</button><button class="calendar-event event-blue" data-modal="appointment"><b>15:00</b> Van Dijk</button></div><div class="calendar-col"><small>2 september</small><button class="calendar-event event-amber" data-modal="workshop"><b>09:30</b> Sparta · service</button></div><div class="calendar-col"><small>3 september</small><button class="calendar-event event-green"><b>11:00</b> Beschikbaar</button></div><div class="calendar-col"><small>4 september</small><p class="calendar-closed">Gesloten</p></div></div><div class="panel calendar-note"><strong>Tip voor Jan:</strong> klik op een blok. Je ziet dan meteen de klant, fiets en volgende actie.</div></section>
+
+      <section class="view" data-panel="klanten"><div class="page-heading"><div><p class="eyebrow">Relaties</p><h1>Klanten</h1><p class="lede">Klant, fiets, factuur en service in één dossier.</p></div><button class="button button-primary" data-modal="customer">+ Nieuwe klant</button></div><label class="search-field wide"><span>⌕</span><input type="search" placeholder="Zoek naam, e-mail of DF-nummer"></label><div class="customer-list"><button class="customer-row" data-modal="customer"><span class="avatar avatar-large">MD</span><span><strong>Marianne de Vries</strong><small>Gazelle Ultimate C8 · gekocht 12-08-2026</small></span><span class="chevron">›</span></button><button class="customer-row" data-modal="customer"><span class="avatar avatar-large">JD</span><span><strong>Johan van Dijk</strong><small>2 fietsen · laatste service 04-06-2026</small></span><span class="chevron">›</span></button></div></section>
+
+      <section class="view" data-panel="instellingen"><div class="page-heading"><div><p class="eyebrow">Rust en controle</p><h1>Instellingen</h1><p class="lede">Pas meldingen, website en accounts aan zonder deployment.</p></div></div><div class="settings-grid"><button class="setting-card" data-modal="notifications"><strong>Meldingen</strong><span>Push per categorie, openingstijden en testmelding</span><b>Openen →</b></button><button class="setting-card" data-modal="website"><strong>Website teksten</strong><span>Homepage, garantie, bezorgen en CTA’s met versiehistorie</span><b>Openen →</b></button><button class="setting-card" data-modal="users"><strong>Personeel & accounts</strong><span>Rollen, rechten en accounts beheren</span><b>Openen →</b></button></div></section>
+    </main>
+
+    <footer class="site-footer"><span>Concept voor Demi Fietsen</span><a href="app.html">Bekijk Android-concept →</a></footer>
+    <div class="modal-backdrop" data-modal-close hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-modal-close aria-label="Sluiten">×</button><p class="eyebrow" data-modal-kicker>Details</p><h2 id="modal-title" data-modal-title>Actie</h2><div class="modal-copy" data-modal-copy></div><div class="modal-actions"><button class="button button-secondary" data-modal-close>Terug</button><button class="button button-primary" data-modal-confirm>Als afgehandeld markeren</button></div></div></div>
+    <script src="script.js"></script>
+  </body>
+</html>

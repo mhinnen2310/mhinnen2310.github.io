@@ -37,6 +37,12 @@ export const env = {
   adminEmail: process.env.ADMIN_EMAIL,
   adminPassword: process.env.ADMIN_PASSWORD,
   cronSecret: process.env.CRON_SECRET,
+  // Firebase Admin credentials are server-only and are used to send FCM
+  // notifications. Keep FIREBASE_PRIVATE_KEY in the escaped "\\n" form used
+  // by most deployment dashboards.
+  firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
+  firebaseClientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+  firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY,
   enableMockPaymentWebhook:
     (!isProduction || isPreview) && (process.env.ENABLE_MOCK_PAYMENT_WEBHOOK ?? "1") === "1",
 };
@@ -64,6 +70,9 @@ export function assertEnv() {
     if (!env.smtpUrl) missing.push("SMTP_URL");
     if (!process.env.EMAIL_FROM) missing.push("EMAIL_FROM");
     if (!env.cronSecret) missing.push("CRON_SECRET");
+    if (!env.firebaseProjectId) missing.push("FIREBASE_PROJECT_ID");
+    if (!env.firebaseClientEmail) missing.push("FIREBASE_CLIENT_EMAIL");
+    if (!env.firebasePrivateKey) missing.push("FIREBASE_PRIVATE_KEY");
     if (!isPublicHttpsUrl(env.siteUrl)) missing.push("NEXT_PUBLIC_SITE_URL (publieke https URL)");
     if (!isPublicHttpsUrl(env.baseUrl)) missing.push("APP_BASE_URL (publieke https URL)");
     if (!isPublicHttpsUrl(env.publicQrBaseUrl)) missing.push("PUBLIC_QR_BASE_URL (permanente publieke https URL)");
@@ -93,6 +102,9 @@ export function assertEnv() {
     if (env.storageDriver !== "supabase") missing.push("STORAGE_DRIVER=supabase");
     if (!env.supabaseUrl) missing.push("SUPABASE_URL");
     if (!env.supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (!env.firebaseProjectId) missing.push("FIREBASE_PROJECT_ID");
+    if (!env.firebaseClientEmail) missing.push("FIREBASE_CLIENT_EMAIL");
+    if (!env.firebasePrivateKey) missing.push("FIREBASE_PRIVATE_KEY");
     if (missing.length > 0) {
       throw new Error(`Missing preview environment variables: ${missing.join(", ")}`);
     }

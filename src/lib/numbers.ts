@@ -12,7 +12,7 @@ import type { Prisma } from "@prisma/client";
  * variant (nextNumberInTx) must be used inside interactive transactions
  * (checkout, invoicing) so the counter and the record commit atomically.
  */
-export type CounterKind = "order" | "invoice" | "bike";
+export type CounterKind = "order" | "invoice" | "bike" | "battery";
 
 type Tx = Prisma.TransactionClient;
 
@@ -54,4 +54,9 @@ export function nextInvoiceNumber(date: Date = new Date()): Promise<string> {
  */
 export function nextBikeInventoryCodeInTx(tx: Tx, date: Date = new Date()): Promise<string> {
   return nextNumberInTx(tx, "bike", date.getFullYear(), "DF-B", 6);
+}
+
+/** Human-readable asset code for a separately registered physical battery. */
+export function nextBatteryAssetCodeInTx(tx: Tx, date: Date = new Date()): Promise<string> {
+  return nextNumberInTx(tx, "battery", date.getFullYear(), "ACC", 6);
 }

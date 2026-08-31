@@ -4,8 +4,11 @@ import { getSettings } from "@/lib/settings";
 import { Announcement } from "@/components/announcement";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { RedesignSiteHeader } from "@/components/redesign-site-header";
+import { RedesignSiteFooter } from "@/components/redesign-site-footer";
 import { env } from "@/lib/env";
 import { getStaffUser } from "@/lib/admin-auth";
+import { getUiMode } from "@/lib/ui-mode";
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await getSettings();
@@ -34,10 +37,11 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [settings, staffUser] = await Promise.all([getSettings(), getStaffUser()]);
+  const [settings, staffUser, uiMode] = await Promise.all([getSettings(), getStaffUser(), getUiMode()]);
+  const redesigned = uiMode === "redesign";
   return (
     <html lang="nl">
-      <body className="flex min-h-screen flex-col">
+      <body className={`flex min-h-screen flex-col ${redesigned ? "ui-redesign" : ""}`}>
         <a
           href="#hoofdinhoud"
           className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:shadow"
@@ -45,11 +49,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Naar de inhoud
         </a>
         <Announcement settings={settings} />
-        <SiteHeader settings={settings} showAdmin={Boolean(staffUser)} />
+        {redesigned ? <RedesignSiteHeader settings={settings} showAdmin={Boolean(staffUser)} /> : <SiteHeader settings={settings} showAdmin={Boolean(staffUser)} />}
         <main id="hoofdinhoud" className="flex-1">
           {children}
         </main>
-        <SiteFooter settings={settings} />
+        {redesigned ? <RedesignSiteFooter settings={settings} /> : <SiteFooter settings={settings} />}
       </body>
     </html>
   );

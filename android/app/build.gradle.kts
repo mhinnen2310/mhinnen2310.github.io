@@ -1,17 +1,31 @@
+import java.net.URI
+
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android"); id("org.jetbrains.kotlin.plugin.compose") }
+
+// Keep local/CI builds possible without committing Firebase credentials. As
+// soon as android/app/google-services.json is supplied, the official plugin
+// is applied automatically and Firebase Messaging is fully initialized.
+if (file("google-services.json").exists()) apply(plugin = "com.google.gms.google-services")
+
+val debugApiBaseUrl = providers.gradleProperty("apiBaseUrl").orElse("http://10.0.2.2:3001").get().trimEnd('/')
+val debugApiUri = URI(debugApiBaseUrl)
+val debugApiScheme = debugApiUri.scheme ?: "http"
+val debugApiHost = debugApiUri.host ?: error("apiBaseUrl moet een geldige URL zijn: $debugApiBaseUrl")
 
 android { namespace = "nl.demifietsen.staff"; compileSdk = 35
   defaultConfig { applicationId = "nl.demifietsen.staff"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "0.1.0" }
   buildFeatures { compose = true; buildConfig = true }
   buildTypes {
     debug {
-      buildConfigField("String", "API_BASE_URL", "\"https://demifietsen-preview.onrender.com\"")
-      manifestPlaceholders["usesCleartextTraffic"] = "false"
-      manifestPlaceholders["appLinkHost"] = "demifietsen-preview.onrender.com"
+      buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
+      manifestPlaceholders["usesCleartextTraffic"] = (debugApiScheme == "http").toString()
+      manifestPlaceholders["appLinkScheme"] = debugApiScheme
+      manifestPlaceholders["appLinkHost"] = debugApiHost
     }
     release {
       buildConfigField("String", "API_BASE_URL", "\"https://demifietsen.nl\"")
       manifestPlaceholders["usesCleartextTraffic"] = "false"
+      manifestPlaceholders["appLinkScheme"] = "https"
       manifestPlaceholders["appLinkHost"] = "demifietsen.nl"
     }
   }
@@ -39,5 +53,7 @@ dependencies {
   implementation("androidx.camera:camera-view:1.4.1")
   implementation("androidx.core:core-ktx:1.15.0")
   implementation("androidx.security:security-crypto:1.1.0-alpha06")
+  implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+  implementation("com.google.firebase:firebase-messaging")
   testImplementation("junit:junit:4.13.2")
 }

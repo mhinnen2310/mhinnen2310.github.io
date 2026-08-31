@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AdminBikeEditor } from "@/components/admin-bike-forms";
 import { computeMargin } from "@/lib/bikes";
+import { ensureLegacyBatteryForBike } from "@/lib/batteries";
 import { prisma } from "@/lib/prisma";
 import { numericValue } from "@/lib/utils";
 import { ensureBikeIntake, ensureInspectionChecklist, getIntakeReadiness, getWorkshopReadiness } from "@/lib/workshop";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminBikePage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
+  await ensureLegacyBatteryForBike(id);
   await Promise.all([ensureBikeIntake(id), ensureInspectionChecklist(id)]);
   const [bike, auditEvents, intakeReadiness, workshopReadiness] = await Promise.all([
     prisma.bike.findUnique({
@@ -18,6 +20,12 @@ export default async function AdminBikePage(props: { params: Promise<{ id: strin
         serviceTasks: { orderBy: [{ completed: "asc" }, { createdAt: "desc" }], include: { completedBy: { select: { name: true, email: true } } } },
         priceHistory: { orderBy: { createdAt: "desc" }, take: 50 },
         intakeRecord: true,
+        currentBattery: {
+          include: {
+            assignments: { orderBy: { assignedAt: "desc" }, take: 20 },
+            repairs: { orderBy: { createdAt: "desc" }, take: 20 },
+          },
+        },
       },
     }),
     prisma.auditLog.findMany({

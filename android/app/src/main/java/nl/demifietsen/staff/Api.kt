@@ -36,6 +36,23 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
   fun inventory() = execute(request("/api/mobile/bikes"))
   fun advertisement(id: String) = execute(request("/api/mobile/bikes/$id/advertisement"))
   fun notifications() = execute(request("/api/mobile/notifications"))
+  fun registerPushToken(token: String): JSONObject {
+    val body = JSONObject()
+      .put("token", token)
+      .put("platform", "android")
+      .put("deviceId", sessions.deviceId())
+      .put("enabled", true)
+      .put("categories", sessions.notificationPreferences())
+    val result = execute(request("/api/mobile/push-token", "POST", body))
+    sessions.savePushToken(token)
+    return result
+  }
+  fun syncPushPreferences(): JSONObject? = sessions.pushToken()?.let(::registerPushToken)
+  fun testPushNotification() = execute(request("/api/mobile/push-test", "POST", JSONObject()))
+  fun unregisterPushToken(token: String) {
+    execute(request("/api/mobile/push-token?token=${android.net.Uri.encode(token)}", "DELETE"))
+    sessions.clearPushToken()
+  }
   fun reservations() = execute(request("/api/mobile/reservations"))
   fun reserve(payload: JSONObject) = execute(request("/api/mobile/reservations", "POST", payload))
   fun releaseReservation(id: String) = execute(request("/api/mobile/reservations/$id", "DELETE"))
@@ -74,12 +91,14 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
   }
   fun prepareLogout(): () -> Unit {
     val logoutRequest = request("/api/mobile/auth/logout", "POST")
+    val pushRequest = sessions.pushToken()?.let { request("/api/mobile/push-token?token=${android.net.Uri.encode(it)}", "DELETE") }
     sessions.clear()
-    return { try { execute(logoutRequest, false) } catch (_: Exception) { } }
+    return { try { if (pushRequest != null) execute(pushRequest, false); execute(logoutRequest, false) } catch (_: Exception) { } }
   }
 }
 class ApiException(val code: Int, override val message: String): Exception(message)
 class SessionStore(context: Context) {
+  companion object { val notificationCategories = listOf("sales", "inventory", "reservations", "payments", "workshop", "service", "appointments") }
   private val prefs = EncryptedSharedPreferences.create(context, "mobile-session", MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(), EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV, EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
   fun token() = prefs.getString("access_token", null)
   fun refreshToken() = prefs.getString("refresh_token", null)
@@ -95,11 +114,15 @@ class SessionStore(context: Context) {
   fun setBiometricEnabled(enabled: Boolean) = prefs.edit().putBoolean("biometric_enabled", enabled).apply()
   fun notificationEnabled(category: String) = prefs.getBoolean("notification_$category", true)
   fun setNotificationEnabled(category: String, enabled: Boolean) = prefs.edit().putBoolean("notification_$category", enabled).apply()
+  fun notificationPreferences(): JSONObject = JSONObject().apply { notificationCategories.forEach { put(it, notificationEnabled(it)) } }
+  fun pushToken() = prefs.getString("push_token", null)
+  fun savePushToken(token: String) = prefs.edit().putString("push_token", token).apply()
+  fun clearPushToken() = prefs.edit().remove("push_token").apply()
   // The first-run screen immediately checks hasPin() after this call. Commit
   // synchronously so that Compose cannot render the setup screen once more
   // while SharedPreferences.apply() is still queued.
   fun savePin(pin: String) { val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }; prefs.edit().putString("pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP)).putString("pin_hash", pinHash(pin, salt)).commit() }
   fun changePin(current: String, next: String): Boolean { if (!verifyPin(current)) return false; savePin(next); return true }
   fun verifyPin(pin: String): Boolean { val encoded = prefs.getString("pin_salt", null) ?: return false; val expected = prefs.getString("pin_hash", null) ?: return false; return java.security.MessageDigest.isEqual(expected.toByteArray(), pinHash(pin, Base64.decode(encoded, Base64.NO_WRAP)).toByteArray()) }
-  fun clear() = prefs.edit().remove("access_token").remove("refresh_token").remove("pin_hash").remove("pin_salt").remove("biometric_enabled").apply()
+  fun clear() = prefs.edit().remove("access_token").remove("refresh_token").remove("pin_hash").remove("pin_salt").remove("biometric_enabled").remove("push_token").apply()
 }
