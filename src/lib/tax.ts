@@ -21,10 +21,13 @@ import type { LineKind } from "@prisma/client";
  * All order lines carry a snapshot of the rate applied, so invoices remain
  * valid even if configuration changes later.
  */
+export type BikeTaxScheme = "MARGIN" | "STANDARD";
+
 export interface TaxConfig {
   basis: "incl" | "excl";
   bikeRate: number;
   accessoryRate: number;
+  bikeScheme: BikeTaxScheme;
   requiresReview: boolean;
 }
 
@@ -32,6 +35,7 @@ export const DEFAULT_TAX_CONFIG: TaxConfig = {
   basis: "incl",
   bikeRate: 21,
   accessoryRate: 21,
+  bikeScheme: "MARGIN",
   requiresReview: true,
 };
 
@@ -43,6 +47,7 @@ export async function getTaxConfig(): Promise<TaxConfig> {
     basis: raw.basis === "excl" ? "excl" : "incl",
     bikeRate: typeof raw.bikeRate === "number" ? raw.bikeRate : 21,
     accessoryRate: typeof raw.accessoryRate === "number" ? raw.accessoryRate : 21,
+    bikeScheme: raw.bikeScheme === "STANDARD" ? "STANDARD" : "MARGIN",
     requiresReview: raw.requiresReview !== false,
   };
 }
@@ -56,6 +61,9 @@ export interface LineTaxResult {
   taxCents: number;
   totalCents: number;
   rate: number;
+  scheme: BikeTaxScheme | "STANDARD";
+  marginCents: number | null;
+  requiresCostBasis: boolean;
 }
 
 /**
@@ -63,12 +71,35 @@ export interface LineTaxResult {
  * basis "incl": listed total is VAT-inclusive -> net = total / (1+r)
  * basis "excl": listed total is VAT-exclusive -> total = net * (1+r)
  */
-export function lineTax(totalCents: number, ratePercent: number, basis: "incl" | "excl"): LineTaxResult {
+export function lineTax(
+  totalCents: number,
+  ratePercent: number,
+  basis: "incl" | "excl",
+  options: { scheme?: BikeTaxScheme; acquisitionCostCents?: number | null } = {},
+): LineTaxResult {
+  const scheme = options.scheme ?? "STANDARD";
+  if (scheme === "MARGIN") {
+    // The Dutch margin scheme is an inclusive price regime: VAT is due only
+    // on the positive difference between sale price and acquisition price.
+    // Without a recorded acquisition price we refuse to invent a tax basis.
+    if (basis !== "incl") throw new Error("De margeregeling vereist verkoopprijzen inclusief btw.");
+    const purchase = options.acquisitionCostCents;
+    if (purchase == null) return { netCents: totalCents, taxCents: 0, totalCents, rate: ratePercent, scheme, marginCents: null, requiresCostBasis: true };
+    const marginCents = Math.max(0, totalCents - purchase);
+    const taxCents = Math.round((marginCents * ratePercent) / (100 + ratePercent));
+    return { netCents: totalCents - taxCents, taxCents, totalCents, rate: ratePercent, scheme, marginCents, requiresCostBasis: false };
+  }
   const r = ratePercent / 100;
   if (basis === "incl") {
     const net = Math.round(totalCents / (1 + r));
-    return { netCents: net, taxCents: totalCents - net, totalCents, rate: ratePercent };
+    return { netCents: net, taxCents: totalCents - net, totalCents, rate: ratePercent, scheme: "STANDARD", marginCents: null, requiresCostBasis: false };
   }
   const tax = Math.round(totalCents * r);
-  return { netCents: totalCents, taxCents: tax, totalCents: totalCents + tax, rate: ratePercent };
+  return { netCents: totalCents, taxCents: tax, totalCents: totalCents + tax, rate: ratePercent, scheme: "STANDARD", marginCents: null, requiresCostBasis: false };
+}
+
+/** VAT component of a positive margin, expressed in integer cents. */
+export function marginVatCents(saleCents: number, acquisitionCents: number, ratePercent = 21): number {
+  const margin = Math.max(0, saleCents - acquisitionCents);
+  return Math.round((margin * ratePercent) / (100 + ratePercent));
 }

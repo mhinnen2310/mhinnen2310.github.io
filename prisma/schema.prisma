@@ -882,6 +882,11 @@ model OrderLine {
   lineTotalCents Int
   taxRate        Float    @default(0) // percent, snapshot
   taxCents       Int      @default(0)
+  // Immutable accounting snapshot for unique-bike margin sales.
+  acquisitionCostCents Int?
+  marginCents          Int?
+  marginVatCents       Int?
+  taxScheme            String?
   specs          Json? // snapshot of key specs (size, battery, ...)
   imageKey       String?
   refundedCents  Int      @default(0)

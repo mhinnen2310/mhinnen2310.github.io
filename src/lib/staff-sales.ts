@@ -32,7 +32,7 @@ export async function startStaffSale(input: StartStaffSaleInput, actor: SessionU
   return prisma.$transaction(async (tx) => {
     const bikes = await tx.bike.findMany({
       where: { id: { in: bikeIds } },
-      select: { id: true, inventoryCode: true, title: true, priceCents: true, status: true, frameSizeCm: true, batteryWh: true, isElectric: true },
+      select: { id: true, inventoryCode: true, title: true, priceCents: true, status: true, frameSizeCm: true, batteryWh: true, isElectric: true, acquisitionCostCents: true },
     });
     if (bikes.length !== bikeIds.length) throw new StaffSaleError("Eén of meer fietsen bestaan niet meer.");
     const byId = new Map(bikes.map((bike) => [bike.id, bike]));
@@ -41,10 +41,12 @@ export async function startStaffSale(input: StartStaffSaleInput, actor: SessionU
       if (bike.status !== "AVAILABLE") throw new StaffSaleError(`${bike.inventoryCode} is niet beschikbaar voor verkoop.`);
       if (!Number.isSafeInteger(bike.priceCents) || bike.priceCents <= 0) throw new StaffSaleError(`${bike.inventoryCode} heeft geen geldige verkoopprijs.`);
       const rate = taxRateForLine(taxConfig, "UNIQUE_BIKE");
-      const tax = lineTax(bike.priceCents, rate, taxConfig.basis);
+      const tax = lineTax(bike.priceCents, rate, taxConfig.basis, { scheme: taxConfig.bikeScheme, acquisitionCostCents: bike.acquisitionCostCents });
+      if (tax.requiresCostBasis) throw new StaffSaleError(`${bike.inventoryCode} heeft geen vastgelegde inkoopprijs voor de margeregeling.`);
       return {
         kind: "UNIQUE_BIKE" as const, bikeId: bike.id, productId: null, name: bike.title, identifier: bike.inventoryCode,
         quantity: 1, unitPriceCents: bike.priceCents, lineTotalCents: bike.priceCents, taxRate: tax.rate, taxCents: tax.taxCents,
+        acquisitionCostCents: bike.acquisitionCostCents, marginCents: tax.marginCents, marginVatCents: tax.scheme === "MARGIN" ? tax.taxCents : null, taxScheme: tax.scheme,
         specs: { frameSizeCm: bike.frameSizeCm, batteryWh: bike.batteryWh, isElectric: bike.isElectric }, imageKey: null,
       };
     });
@@ -58,7 +60,7 @@ export async function startStaffSale(input: StartStaffSaleInput, actor: SessionU
         orderNumber, customerName: input.customerName.trim(), customerEmail: input.customerEmail.trim().toLowerCase(),
         customerPhone: input.customerPhone?.trim() || null, customerCompany: input.customerCompany?.trim() || null,
         subtotalCents, taxTotalCents, totalCents, currency: "EUR", deliveryCostCents: 0,
-        taxBasis: { basis: taxConfig.basis, bikeRate: taxConfig.bikeRate, accessoryRate: taxConfig.accessoryRate, requiresReview: taxConfig.requiresReview },
+        taxBasis: { basis: taxConfig.basis, bikeRate: taxConfig.bikeRate, accessoryRate: taxConfig.accessoryRate, bikeScheme: taxConfig.bikeScheme, requiresReview: taxConfig.requiresReview },
         internalNotes: input.internalNotes?.trim() || null,
         lines: { create: orderedLines },
       },

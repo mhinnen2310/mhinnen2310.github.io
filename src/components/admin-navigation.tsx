@@ -22,7 +22,7 @@ const ADMIN_LINKS = [
   { href: "/admin/instellingen", label: "Instellingen", short: "⚙" },
 ] as const;
 
-export function AdminNavigation() {
+export function AdminNavigation({ isOwner = false }: { isOwner?: boolean }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Beheermenu" className="flex gap-1 overflow-x-auto p-2 lg:block lg:space-y-1 lg:overflow-visible lg:p-3">
@@ -45,6 +45,19 @@ export function AdminNavigation() {
           </Link>
         );
       })}
+      {isOwner && (
+        <Link
+          href="/admin/administratie"
+          aria-current={pathname.startsWith("/admin/administratie") ? "page" : undefined}
+          className={cn(
+            "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            pathname.startsWith("/admin/administratie") ? "bg-brand-700 text-white" : "text-ink-soft hover:bg-brand-50 hover:text-brand-800",
+          )}
+        >
+          <span aria-hidden className={cn("flex h-6 w-6 items-center justify-center rounded text-xs font-bold", pathname.startsWith("/admin/administratie") ? "bg-white/15" : "bg-surface")}>PDF</span>
+          Administratie
+        </Link>
+      )}
     </nav>
   );
 }

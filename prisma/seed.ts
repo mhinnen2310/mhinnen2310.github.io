@@ -35,7 +35,7 @@ import { nextOrderNumberInTx } from "../src/lib/numbers";
 import { nextBatteryAssetCodeInTx } from "../src/lib/numbers";
 import { DEFAULT_DELIVERY } from "../src/lib/delivery";
 import { DEFAULT_WARRANTY_CONFIG } from "../src/lib/warranty";
-import { DEFAULT_TAX_CONFIG } from "../src/lib/tax";
+import { DEFAULT_TAX_CONFIG, lineTax } from "../src/lib/tax";
 import { DEFAULT_MARKTPLAATS_TEMPLATE } from "../src/lib/marktplaats";
 
 const isRemoteDeployment = process.env.DEPLOYMENT_MODE === "preview" || process.env.NODE_ENV === "production";
@@ -802,8 +802,9 @@ async function main() {
   const soldBike = await prisma.bike.findUnique({ where: { id: soldBikeId } });
   const orderTotal = 138900;
   const taxRate = 21;
-  const net = Math.round(orderTotal / (1 + taxRate / 100));
-  const taxCents = orderTotal - net;
+  const saleTax = lineTax(orderTotal, taxRate, "incl", { scheme: "MARGIN", acquisitionCostCents: soldBike?.acquisitionCostCents });
+  if (saleTax.requiresCostBasis) throw new Error("Seed sale bike has no acquisition cost for margin scheme.");
+  const taxCents = saleTax.taxCents;
   const placedAt = new Date(Date.now() - 21 * 86400000);
 
   const order = await prisma.$transaction(async (tx) => {
@@ -830,7 +831,7 @@ async function main() {
         totalCents: orderTotal, // basis = incl (DEV-seed, requiresReview=true)
         currency: "EUR",
         placedAt,
-        taxBasis: { basis: "incl", bikeRate: taxRate, accessoryRate: taxRate, requiresReview: true },
+        taxBasis: { basis: "incl", bikeRate: taxRate, accessoryRate: taxRate, bikeScheme: "MARGIN", requiresReview: true },
         internalNotes: "[seed] Voorbeeldbestelling — DEV-data.",
         lines: {
           create: [
@@ -844,6 +845,10 @@ async function main() {
               lineTotalCents: orderTotal,
               taxRate,
               taxCents: taxCents,
+              acquisitionCostCents: soldBike!.acquisitionCostCents,
+              marginCents: saleTax.marginCents,
+              marginVatCents: saleTax.taxCents,
+              taxScheme: "MARGIN",
               specs: {
                 frameSizeCm: 54,
                 wheelSizeInches: 28,

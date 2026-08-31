@@ -7,6 +7,7 @@ import { mediaWidthUrl } from "@/lib/media";
 import { CartLineActions } from "@/components/cart-line-actions";
 import { EmptyState } from "@/components/empty-state";
 import { Badge } from "@/components/badge";
+import { getTaxConfig } from "@/lib/tax";
 
 export const metadata: Metadata = { title: "Winkelwagen" };
 
@@ -46,6 +47,8 @@ export default async function WinkelwagenPage() {
       </div>
     );
   }
+
+  const taxConfig = await getTaxConfig();
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -130,7 +133,9 @@ export default async function WinkelwagenPage() {
           <span className="font-semibold text-ink">{formatPrice(quote.subtotalCents)}</span>
         </div>
         <p className="mt-1 text-xs text-ink-faint">
-          Verzending en eventuele btw worden bij de kassa berekend op basis van je keuze.
+          {taxConfig.basis === "incl" && taxConfig.bikeScheme === "MARGIN"
+            ? "Fietsen kunnen onder de margeregeling vallen; verzending en het definitieve totaal worden bij de kassa berekend."
+            : "Verzending en eventuele btw worden bij de kassa berekend op basis van je keuze."}
         </p>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <Link

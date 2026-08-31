@@ -47,7 +47,7 @@ const GROUPS = [
   },
 ] as const;
 
-export function RedesignAdminNavigation() {
+export function RedesignAdminNavigation({ isOwner = false }: { isOwner?: boolean }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Nieuw beheermenu" className="redesign-admin-nav">
@@ -70,6 +70,15 @@ export function RedesignAdminNavigation() {
           })}
         </div>
       ))}
+      {isOwner && (
+        <div className="redesign-admin-group">
+          <p>Eigenaar</p>
+          <Link href="/admin/administratie" aria-current={pathname.startsWith("/admin/administratie") ? "page" : undefined} className={cn("redesign-admin-nav-link", pathname.startsWith("/admin/administratie") && "is-active")}>
+            <span aria-hidden>PDF</span>
+            Administratie-export
+          </Link>
+        </div>
+      )}
       <Link href="/?ui=classic" className="redesign-admin-classic-link">Klassieke site</Link>
     </nav>
   );

@@ -13,6 +13,7 @@ import { BikeCard } from "@/components/bike-card";
 import { AddToCartButton } from "@/components/add-to-cart-button";
 import { Badge } from "@/components/badge";
 import { mediaWidthUrl } from "@/lib/media";
+import { getTaxConfig } from "@/lib/tax";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +56,11 @@ export default async function BikePage({ params }: Props) {
   const isReserved = bike.status === "RESERVED";
   const isAvailable = bike.status === "AVAILABLE";
 
-  const [warranty, delivery, similar] = await Promise.all([
+  const [warranty, delivery, similar, taxConfig] = await Promise.all([
     getWarrantyConfig(),
     getDeliveryConfig(),
     isSold ? pickSimilarBikes(bike, 4) : pickSimilarBikes(bike, 3),
+    getTaxConfig(),
   ]);
 
   // ---- Structured data (valid schema.org; no fake reviews) ----------------
@@ -244,7 +246,11 @@ export default async function BikePage({ params }: Props) {
                 )}
             </div>
             <p className="mt-1 text-xs text-ink-faint">
-              Vraagprijs, inclusief btw indien van toepassing.
+              {taxConfig.basis === "incl"
+                ? taxConfig.bikeScheme === "MARGIN"
+                  ? "Vraagprijs inclusief btw; voor deze tweedehands fiets geldt de margeregeling."
+                  : "Vraagprijs, inclusief btw indien van toepassing."
+                : "Vraagprijs exclusief btw; btw wordt bij de bestelling berekend."}
             </p>
 
             {/* CTAs */}

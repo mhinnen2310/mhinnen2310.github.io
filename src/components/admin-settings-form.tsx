@@ -41,6 +41,13 @@ type AdminSettings = {
     title: string | null;
     description: string | null;
   };
+  tax: {
+    basis: "incl" | "excl";
+    bikeScheme: "MARGIN" | "STANDARD";
+    bikeRate: number;
+    accessoryRate: number;
+    requiresReview: boolean;
+  };
 };
 
 export function AdminSettingsForm({ settings }: { settings: AdminSettings }) {
@@ -90,6 +97,11 @@ export function AdminSettingsForm({ settings }: { settings: AdminSettings }) {
           deliveryOptions: form.get("deliveryOptions"),
           warrantyTitle: form.get("warrantyTitle"),
           warrantyDescription: form.get("warrantyDescription"),
+          taxBasis: form.get("taxBasis"),
+          bikeScheme: form.get("bikeScheme"),
+          bikeRate: form.get("bikeRate"),
+          accessoryRate: form.get("accessoryRate"),
+          taxRequiresReview: form.get("taxRequiresReview") === "yes",
         }),
       });
       const result = (await response.json().catch(() => null)) as {
@@ -223,6 +235,17 @@ export function AdminSettingsForm({ settings }: { settings: AdminSettings }) {
             />
           </label>
         </div>
+      </fieldset>
+      <fieldset className="rounded-lg border border-line p-4">
+        <legend className="px-1 text-sm font-semibold text-ink">Btw & margeregeling</legend>
+        <p className="mt-1 text-xs text-ink-faint">Deze instelling wordt vastgelegd op iedere nieuwe order. Laat de margeregeling door je boekhouder bevestigen.</p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <label className="text-sm text-ink-soft">Fietsregeling<select name="bikeScheme" defaultValue={settings.tax.bikeScheme} className={inputClass}><option value="MARGIN">Margeregeling (tweedehands fietsen)</option><option value="STANDARD">Normale btw</option></select></label>
+          <label className="text-sm text-ink-soft">Prijsbasis<select name="taxBasis" defaultValue={settings.tax.basis} className={inputClass}><option value="incl">Verkoopprijzen inclusief btw</option><option value="excl">Verkoopprijzen exclusief btw</option></select></label>
+          <label className="text-sm text-ink-soft">Btw-percentage fietsen<input name="bikeRate" type="number" min="0" max="100" step="0.01" defaultValue={settings.tax.bikeRate} className={inputClass} /></label>
+          <label className="text-sm text-ink-soft">Btw-percentage accessoires<input name="accessoryRate" type="number" min="0" max="100" step="0.01" defaultValue={settings.tax.accessoryRate} className={inputClass} /></label>
+        </div>
+        <label className="mt-3 flex items-center gap-2 text-sm text-ink-soft"><input name="taxRequiresReview" value="yes" type="checkbox" defaultChecked={settings.tax.requiresReview} /> Boekhoudkundige controle markeren</label>
       </fieldset>
       <fieldset className="rounded-lg border border-line p-4">
         <legend className="px-1 text-sm font-semibold text-ink">

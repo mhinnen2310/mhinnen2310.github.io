@@ -293,6 +293,7 @@ export async function updateSettings(
     seo?: Partial<SeoConfig> | null;
     delivery?: Partial<DeliveryConfig> | null;
     warranty?: Partial<WarrantyConfig> | null;
+    tax?: Record<string, unknown> | null;
   },
   actorId?: string | null,
 ): Promise<SettingsView> {
@@ -304,6 +305,7 @@ export async function updateSettings(
     seo,
     delivery,
     warranty,
+    tax,
     ...rest
   } = data;
   const s = await prisma.$transaction(async (tx) => {
@@ -334,6 +336,12 @@ export async function updateSettings(
           ? (existing.warranty as Record<string, unknown>)
           : {};
       update.warranty = { ...current, ...warranty };
+    }
+    if (tax) {
+      const current = existing?.tax && typeof existing.tax === "object" && !Array.isArray(existing.tax)
+        ? (existing.tax as Record<string, unknown>)
+        : {};
+      update.tax = { ...current, ...tax };
     }
 
     if (existing) {

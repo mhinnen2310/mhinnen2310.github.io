@@ -79,6 +79,10 @@ interface CheckoutLine {
   lineTotalCents: number;
   taxRate: number;
   taxCents: number;
+  acquisitionCostCents: number | null;
+  marginCents: number | null;
+  marginVatCents: number | null;
+  taxScheme: string;
   imageKey: string | null;
   specs: object | null;
 }
@@ -138,6 +142,7 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
             gears: true,
             batteryWh: true,
             batteryAh: true,
+            acquisitionCostCents: true,
             motorPosition: true,
             conditionGrade: true,
             colour: true,
@@ -156,7 +161,12 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
 
   const lines: CheckoutLine[] = quote.lines.map((line) => {
     const rate = taxRateForLine(taxConfig, line.kind);
-    const tax = lineTax(line.lineTotalCents, rate, taxConfig.basis);
+    const acquisitionCostCents = line.kind === "UNIQUE_BIKE" ? (bikeSpecs.get(line.refId)?.acquisitionCostCents ?? null) : null;
+    const tax = lineTax(line.lineTotalCents, rate, taxConfig.basis, {
+      scheme: line.kind === "UNIQUE_BIKE" ? taxConfig.bikeScheme : "STANDARD",
+      acquisitionCostCents,
+    });
+    if (tax.requiresCostBasis) throw new CheckoutError(`Voor ${line.name} ontbreekt de vastgelegde inkoopprijs. Deze fiets kan niet via de margeregeling worden verkocht.`, "CART_INVALID");
     return {
       kind: line.kind,
       bikeId: line.kind === "UNIQUE_BIKE" ? line.refId : null,
@@ -168,6 +178,10 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
       lineTotalCents: line.lineTotalCents,
       taxRate: tax.rate,
       taxCents: tax.taxCents,
+      acquisitionCostCents,
+      marginCents: tax.marginCents,
+      marginVatCents: tax.scheme === "MARGIN" ? tax.taxCents : null,
+      taxScheme: tax.scheme,
       imageKey: line.imageKey,
       specs: line.kind === "UNIQUE_BIKE" ? (bikeSpecs.get(line.refId) ?? null) : (productSpecs.get(line.refId) ?? null),
     };
@@ -219,11 +233,12 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
         taxTotalCents,
         totalCents,
         currency: "EUR",
-        taxBasis: {
-          basis: taxConfig.basis,
-          bikeRate: taxConfig.bikeRate,
-          accessoryRate: taxConfig.accessoryRate,
-          requiresReview: taxConfig.requiresReview,
+          taxBasis: {
+            basis: taxConfig.basis,
+            bikeRate: taxConfig.bikeRate,
+            accessoryRate: taxConfig.accessoryRate,
+            bikeScheme: taxConfig.bikeScheme,
+            requiresReview: taxConfig.requiresReview,
         },
         internalNotes: input.internalNotes ?? undefined,
         lines: {
@@ -238,6 +253,10 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
             lineTotalCents: line.lineTotalCents,
             taxRate: line.taxRate,
             taxCents: line.taxCents,
+            acquisitionCostCents: line.acquisitionCostCents,
+            marginCents: line.marginCents,
+            marginVatCents: line.marginVatCents,
+            taxScheme: line.taxScheme,
             specs: line.specs ?? undefined,
             imageKey: line.imageKey,
           })),

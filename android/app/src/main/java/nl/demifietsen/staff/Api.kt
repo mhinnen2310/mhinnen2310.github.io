@@ -34,6 +34,7 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
   fun bike(id: String) = execute(request("/api/mobile/bikes/$id"))
   fun updateBike(id: String, payload: JSONObject) = execute(request("/api/mobile/bikes/$id", "PATCH", payload))
   fun inventory() = execute(request("/api/mobile/bikes"))
+  fun dashboard() = execute(request("/api/mobile/dashboard"))
   fun batteries() = execute(request("/api/mobile/batteries"))
   fun createBattery(payload: JSONObject) = execute(request("/api/mobile/batteries", "POST", payload))
   fun battery(id: String) = execute(request("/api/mobile/batteries/$id"))

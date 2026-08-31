@@ -34,6 +34,10 @@ interface InvoiceLineSnapshot {
   lineTotalCents: number;
   taxRate: number;
   taxCents: number;
+  acquisitionCostCents?: number | null;
+  marginCents?: number | null;
+  marginVatCents?: number | null;
+  taxScheme?: string | null;
 }
 
 export interface InvoiceData {
@@ -62,6 +66,10 @@ export type OrderForInvoice = Order & {
     lineTotalCents: number;
     taxRate: number;
     taxCents: number;
+    acquisitionCostCents?: number | null;
+    marginCents?: number | null;
+    marginVatCents?: number | null;
+    taxScheme?: string | null;
     identifier: string | null;
   }[];
 };
@@ -74,6 +82,10 @@ function buildSnapshots(order: OrderForInvoice) {
     lineTotalCents: l.lineTotalCents,
     taxRate: l.taxRate,
     taxCents: l.taxCents,
+    acquisitionCostCents: l.acquisitionCostCents ?? null,
+    marginCents: l.marginCents ?? null,
+    marginVatCents: l.marginVatCents ?? null,
+    taxScheme: l.taxScheme ?? null,
   }));
 
   const customer = {
@@ -286,6 +298,7 @@ async function generateInvoicePdf(invoice: {
   company: unknown;
   lines: unknown;
   totals: unknown;
+  tax: unknown;
   order: Order;
 }): Promise<string> {
   const { default: PDFDocument } = await import("pdfkit");
@@ -317,6 +330,11 @@ async function generateInvoicePdf(invoice: {
   doc.text(`Datum: ${formatDate(invoice.issuedAt)}`);
   doc.text(`Bestelnummer: ${invoice.order.orderNumber}`);
   doc.text(`Besteldatum: ${formatDate(invoice.order.placedAt)}`);
+  const taxCfg = (invoice.tax ?? {}) as Record<string, unknown>;
+  if (taxCfg.bikeScheme === "MARGIN") {
+    doc.moveDown(0.35);
+    doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#555555").text("Voor fietsen is de margeregeling toegepast; btw wordt niet afzonderlijk op de factuur vermeld.");
+  }
 
   doc.moveDown(0.8);
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#111111").text("Factuuradres");
@@ -351,8 +369,11 @@ async function generateInvoicePdf(invoice: {
   }
   doc.y = y + 4;
 
-  const taxCfg = (invoice as unknown as { tax?: Record<string, unknown> }).tax;
   const basis = taxCfg?.basis === "excl" ? "excl. btw" : "incl. btw";
+  // Margin-scheme VAT is an internal accounting amount and must not be shown
+  // as a separate customer-facing VAT line.  Mixed orders may still contain
+  // ordinary accessory lines whose VAT is shown normally.
+  const invoiceTaxCents = lines.reduce((sum, line) => sum + (line.taxScheme === "MARGIN" ? 0 : line.taxCents), 0);
 
   const line = (label: string, value: string, bold = false) => {
     const ly = doc.y;
@@ -363,7 +384,7 @@ async function generateInvoicePdf(invoice: {
   };
   line("Subtotaal", formatPrice(Number(totals.subtotalCents) || 0));
   line("Verzending/levering", formatPrice(Number(totals.deliveryCostCents) || 0));
-  if (Number(totals.taxTotalCents) !== 0) line(`Verkoopbelasting (${basis})`, formatPrice(Number(totals.taxTotalCents)));
+  if (invoiceTaxCents !== 0) line(`Verkoopbelasting (${basis})`, formatPrice(invoiceTaxCents));
   doc.y += 4;
   line(isCredit ? "Terug te betalen" : "Totaal", formatPrice(isCredit ? -Number(totals.totalCents) : Number(totals.totalCents) || 0), true);
 

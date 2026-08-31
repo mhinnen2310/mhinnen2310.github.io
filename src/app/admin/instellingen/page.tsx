@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { AdminSettingsRevisions } from "@/components/admin-settings-revisions";
 import { AdminUiModeSwitch } from "@/components/admin-ui-mode-switch";
 import { getUiMode } from "@/lib/ui-mode";
+import { getTaxConfig } from "@/lib/tax";
 
 export default async function AdminSettingsPage() {
-  const [settings, legalPages, revisions, uiMode] = await Promise.all([
+  const [settings, legalPages, revisions, uiMode, tax] = await Promise.all([
     getSettings(),
     prisma.legalPage.findMany({
       orderBy: { slug: "asc" },
@@ -29,6 +30,7 @@ export default async function AdminSettingsPage() {
       },
     }),
     getUiMode(),
+    getTaxConfig(),
   ]);
   return (
     <div>
@@ -40,7 +42,7 @@ export default async function AdminSettingsPage() {
         worden gebruikt.
       </p>
       <div className="mt-6 rounded-xl border border-line bg-card p-5 sm:p-6">
-        <AdminSettingsForm settings={settings} />
+        <AdminSettingsForm settings={{ ...settings, tax }} />
       </div>
       <AdminSettingsRevisions
         revisions={revisions.map((revision) => ({

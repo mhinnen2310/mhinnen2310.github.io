@@ -36,6 +36,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -90,6 +92,17 @@ class MainActivity : FragmentActivity() {
 }
 
 private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dispatchers.IO) { runCatching(action) }
+
+private fun Modifier.pullToRefresh(isRefreshing: Boolean, onRefresh: () -> Unit): Modifier = pointerInput(isRefreshing) {
+  var distance = 0f
+  detectVerticalDragGestures(
+    // Do not consume the gesture here: the child LazyColumn must keep its
+    // normal scrolling behaviour. A long downward drag also refreshes.
+    onVerticalDrag = { _, amount -> if (amount > 0) distance += amount },
+    onDragEnd = { if (distance >= 96f && !isRefreshing) onRefresh(); distance = 0f },
+    onDragCancel = { distance = 0f },
+  )
+}
 
 @Composable private fun StaffRoot(sessions: SessionStore, baseUrl: String, activity: MainActivity, deepLinkToken: String?, consumeDeepLink: () -> Unit) {
   val api = remember { DemiApi(baseUrl, sessions) }
@@ -162,8 +175,17 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
 
 @Composable private fun HomeScreen(api: DemiApi, sessions: SessionStore, open: (String) -> Unit, logout: () -> Unit) {
   val actions = listOf("QR scannen" to "scan", "Nieuwe fiets" to "new-bike", "Fietsvoorraad" to "inventory", "Accu’s" to "batteries", "Werkplaats" to "workshop", "Verkopen" to "sales", "Advertenties" to "ads", "Reserveringen" to "reservations", "Instellingen" to "settings")
+  val scope = rememberCoroutineScope()
   var notices by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var noticeError by remember { mutableStateOf<String?>(null) }
+  var dashboard by remember { mutableStateOf<JSONObject?>(null) }
+  var dashboardBusy by remember { mutableStateOf(false) }
+  fun loadDashboard() {
+    if (dashboardBusy) return
+    dashboardBusy = true
+    scope.launch { background { api.dashboard() }.onSuccess { dashboard = it.optJSONObject("dashboard") }.onFailure { }.also { dashboardBusy = false } }
+  }
   LaunchedEffect(Unit) {
+    loadDashboard()
     while (true) {
       background { api.notifications() }
         .onSuccess { json ->
@@ -176,9 +198,10 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
       delay(60_000)
     }
   }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(dashboardBusy) { loadDashboard() }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
     item { Text("Demi Fietsen", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary) }
     item { Text("Medewerkers", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    dashboard?.let { item { DashboardSummary(it) } }
     if (notices.isNotEmpty()) item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) { Column(Modifier.padding(14.dp)) { Text("Meldingen", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); notices.take(3).forEach { notice -> Text("• ${notice.optString("title")}", modifier = Modifier.padding(top = 6.dp)); Text(notice.optString("body"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
     noticeError?.let { problem -> item { Text("Meldingen konden niet worden geladen: $problem", color = MaterialTheme.colorScheme.error) } }
     items(actions) { (label, route) -> Card(onClick = { open(route) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth().padding(20.dp)) } }
@@ -186,12 +209,29 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   }
 }
 
+@Composable private fun DashboardSummary(data: JSONObject) {
+  Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Text("Vandaag in beeld", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { DashboardMetric("Voorraad", data.optInt("stockCount")); DashboardMetric("Beschikbaar", data.optInt("availableCount")); DashboardMetric("Verkocht", data.optInt("soldThisMonth")) }
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { DashboardMetric("Omzet", euro(data.optInt("revenueThisMonthCents"))); DashboardMetric("Marge", euro(data.optInt("grossMarginThisMonthCents"))); DashboardMetric("Marge-btw", euro(data.optInt("marginVatThisMonthCents"))) }
+      val attention = data.optInt("pendingOrders") + data.optInt("expiredReservations") + data.optInt("incompleteWorkshop") + data.optInt("manualReviews")
+      if (attention > 0) Text("$attention aandachtspunt${if (attention == 1) "" else "en"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+    }
+  }
+}
+
+@Composable private fun DashboardMetric(label: String, value: Any) { Column { Text(value.toString(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface); Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+private fun euro(cents: Int) = "€ ${"%.2f".format(java.util.Locale.US, cents / 100.0)}"
+
 @Composable private fun InventoryScreen(api: DemiApi, openBike: (String) -> Unit, back: () -> Unit) {
   var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf<String?>(null) }; var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
   val scope = rememberCoroutineScope()
-  Column(Modifier.fillMaxSize().padding(20.dp)) {
+  fun load() { busy = true; error = null; scope.launch { background { api.inventory() }.onSuccess { result -> val list = result.optJSONArray("bikes"); rows = (0 until (list?.length() ?: 0)).map { list!!.getJSONObject(it) } }.onFailure { error = it.message }; busy = false } }
+  LaunchedEffect(Unit) { load() }
+  Column(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }) {
     Row { TextButton(onClick = back) { Text("← Terug") }; Text("Voorraad", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 12.dp)) }
-    Button(enabled = !busy, onClick = { busy = true; error = null; scope.launch { background { api.inventory() }.onSuccess { result -> rows = (0 until result.getJSONArray("bikes").length()).map { result.getJSONArray("bikes").getJSONObject(it) } }.onFailure { error = it.message }; busy = false } }) { Text("Voorraad verversen") }
+    Text("Trek omlaag om de voorraad te verversen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }; if (busy) CircularProgressIndicator(Modifier.padding(16.dp))
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) { items(rows) { bike -> Card(onClick = { openBike(bike.optString("id")) }) { Column(Modifier.padding(14.dp)) { Text(bike.optString("title")); Text("${bike.optString("inventoryCode")} · ${bike.optString("status")}", color = MaterialTheme.colorScheme.onSurfaceVariant); Text("€ ${(bike.optInt("priceCents") / 100.0)}") } } } }
   }
@@ -205,8 +245,8 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
     busy = false
   } }
   LaunchedEffect(Unit) { load() }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    item { TextButton(onClick = back) { Text("← Terug") }; Text("Accu’s", style = MaterialTheme.typography.headlineMedium); Text("Registreer en repareer accu’s los van fietsen. Koppelen kan later.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    item { TextButton(onClick = back) { Text("← Terug") }; Text("Accu’s", style = MaterialTheme.typography.headlineMedium); Text("Registreer en repareer accu’s los van fietsen. Koppelen kan later. Trek omlaag om opnieuw te laden.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     item { Text("Nieuwe accu", style = MaterialTheme.typography.titleLarge) }
     item { OutlinedTextField(manufacturer, { manufacturer = it }, label = { Text("Fabrikant") }, modifier = Modifier.fillMaxWidth()) }
     item { OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth()) }
@@ -295,7 +335,7 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
   val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved -> if (saved) cameraUri?.let(::upload) else error = "Foto-opname is geannuleerd." }
   val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) upload(uri) }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
     item { TextButton(onClick = back) { Text("← Voorraad") } }; item { Text(data?.optString("inventoryCode") ?: "Fietsdossier", style = MaterialTheme.typography.headlineMedium) }
     item { Text("Volledige gegevens blijven server-gevalideerd. Bewerk hier de dagelijkse dossier- en advertentievelden; intake en werkplaats blijven als aparte veilige stappen beschikbaar.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     if (busy) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }; notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
@@ -310,7 +350,7 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   val scope = rememberCoroutineScope(); var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var bikeId by remember { mutableStateOf("") }; var customer by remember { mutableStateOf("") }; var minutes by remember { mutableStateOf("10080") }; var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
   fun load() { busy = true; scope.launch { background { api.reservations() }.onSuccess { json -> val list = json.getJSONArray("reservations"); rows = (0 until list.length()).map { list.getJSONObject(it) } }.onFailure { message = it.message }; busy = false } }
   LaunchedEffect(Unit) { load() }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { item { TextButton(onClick = back) { Text("← Terug") } }; item { Text("Reserveringen", style = MaterialTheme.typography.headlineMedium) }; item { OutlinedTextField(bikeId, { bikeId = it }, label = { Text("Fiets-id") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(customer, { customer = it }, label = { Text("Klantnaam (optioneel)") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit) }, label = { Text("Duur in minuten, max. 10080") }, modifier = Modifier.fillMaxWidth()) }; item { Button(enabled = !busy && bikeId.isNotBlank(), onClick = { val ttl = minutes.toIntOrNull(); if (ttl == null) { message = "Vul een geldige duur in."; return@Button }; busy = true; scope.launch { background { api.reserve(JSONObject().put("bikeId", bikeId).put("source", "MANUAL").put("customerName", customer).put("expiresInMinutes", ttl)) }.onSuccess { message = "Reservering aangemaakt."; bikeId = ""; customer = ""; load() }.onFailure { message = it.message }; busy = false } }) { Text("Reserveren") } }; message?.let { item { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } }; items(rows) { row -> Card { Column(Modifier.padding(12.dp)) { val bike = row.getJSONObject("bike"); Text("${bike.optString("inventoryCode")} · ${bike.optString("title")}"); Text("Verloopt: ${row.optString("expiresAt")}", style = MaterialTheme.typography.bodySmall); if (!row.has("order") || row.isNull("order")) TextButton(onClick = { scope.launch { background { api.releaseReservation(row.getString("id")) }.onSuccess { load() }.onFailure { message = it.message } } }) { Text("Vrijgeven") } else Text("Checkout-reservering: via betaling verwerken", style = MaterialTheme.typography.bodySmall) } } } }
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }, verticalArrangement = Arrangement.spacedBy(10.dp)) { item { TextButton(onClick = back) { Text("← Terug") } }; item { Text("Reserveringen", style = MaterialTheme.typography.headlineMedium) }; item { Text("Trek omlaag om opnieuw te laden.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; item { OutlinedTextField(bikeId, { bikeId = it }, label = { Text("Fiets-id") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(customer, { customer = it }, label = { Text("Klantnaam (optioneel)") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(minutes, { minutes = it.filter(Char::isDigit) }, label = { Text("Duur in minuten, max. 10080") }, modifier = Modifier.fillMaxWidth()) }; item { Button(enabled = !busy && bikeId.isNotBlank(), onClick = { val ttl = minutes.toIntOrNull(); if (ttl == null) { message = "Vul een geldige duur in."; return@Button }; busy = true; scope.launch { background { api.reserve(JSONObject().put("bikeId", bikeId).put("source", "MANUAL").put("customerName", customer).put("expiresInMinutes", ttl)) }.onSuccess { message = "Reservering aangemaakt."; bikeId = ""; customer = ""; load() }.onFailure { message = it.message }; busy = false } }) { Text("Reserveren") } }; message?.let { item { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } }; items(rows) { row -> Card { Column(Modifier.padding(12.dp)) { val bike = row.getJSONObject("bike"); Text("${bike.optString("inventoryCode")} · ${bike.optString("title")}"); Text("Verloopt: ${row.optString("expiresAt")}", style = MaterialTheme.typography.bodySmall); if (!row.has("order") || row.isNull("order")) TextButton(onClick = { scope.launch { background { api.releaseReservation(row.getString("id")) }.onSuccess { load() }.onFailure { message = it.message } } }) { Text("Vrijgeven") } else Text("Checkout-reservering: via betaling verwerken", style = MaterialTheme.typography.bodySmall) } } } }
 }
 
 @Composable private fun AdvertisementScreen(api: DemiApi, back: () -> Unit) {

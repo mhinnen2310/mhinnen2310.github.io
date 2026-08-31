@@ -138,6 +138,19 @@ export async function PATCH(req: Request) {
             ),
           }
         : undefined;
+    const tax =
+      "taxBasis" in body || "bikeScheme" in body || "bikeRate" in body || "accessoryRate" in body
+        ? {
+            basis: body.taxBasis === "excl" ? "excl" : "incl",
+            bikeScheme: body.bikeScheme === "STANDARD" ? "STANDARD" : "MARGIN",
+            bikeRate: Number.isFinite(Number(body.bikeRate)) ? Math.min(100, Math.max(0, Number(body.bikeRate))) : 21,
+            accessoryRate: Number.isFinite(Number(body.accessoryRate)) ? Math.min(100, Math.max(0, Number(body.accessoryRate))) : 21,
+            requiresReview: body.taxRequiresReview !== false,
+          }
+        : undefined;
+    if (tax?.bikeScheme === "MARGIN" && tax.basis !== "incl") {
+      throw new Error("De margeregeling vereist verkoopprijzen inclusief btw.");
+    }
     await updateSettings(
       {
         companyName: requiredText(body.companyName, "Bedrijfsnaam", 160),
@@ -156,6 +169,7 @@ export async function PATCH(req: Request) {
         announcement,
         delivery,
         warranty,
+        tax,
       },
       actor.id,
     );
