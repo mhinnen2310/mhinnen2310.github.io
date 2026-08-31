@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { BikeAdminError, createBikeDossier } from "@/lib/bike-admin";
 import { BikeInputError } from "@/lib/bike-input";
+import { BIKE_STATUSES } from "@/lib/bikes";
 import { mobileActor, mobileError, mobileOk } from "@/lib/mobile-route";
 import { prisma } from "@/lib/prisma";
 
@@ -17,9 +18,11 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim() ?? "";
   const status = searchParams.get("status")?.trim() ?? "";
+  const statusFilter = status ? BIKE_STATUSES.find((candidate) => candidate === status) : undefined;
+  if (status && !statusFilter) return NextResponse.json({ error: "Ongeldige fietsstatus." }, { status: 400, headers: { "cache-control": "no-store" } });
   const bikes = await prisma.bike.findMany({
     where: {
-      ...(status ? { status: status as never } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
       ...(query ? { OR: [
         { inventoryCode: { contains: query, mode: "insensitive" } },
         { brand: { contains: query, mode: "insensitive" } },

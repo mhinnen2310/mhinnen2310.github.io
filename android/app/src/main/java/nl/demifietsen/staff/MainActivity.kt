@@ -10,20 +10,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,9 +40,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -54,6 +65,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 
 class MainActivity : FragmentActivity() {
@@ -173,39 +188,255 @@ private fun Modifier.pullToRefresh(isRefreshing: Boolean, onRefresh: () -> Unit)
   }
 }
 
+private data class HomeAction(val label: String, val route: String, val hint: String, val icon: String)
+
+private val homeActions = listOf(
+  HomeAction("QR scannen", "scan", "Open direct een fietsdossier", "⌕"),
+  HomeAction("Nieuwe fiets innemen", "new-bike", "Start met de vaste checklist", "+"),
+  HomeAction("Fietsvoorraad", "inventory", "Bekijk status, prijs en locatie", "▤"),
+  HomeAction("Accu’s", "batteries", "Accudossiers en reparaties", "▣"),
+  HomeAction("Werkplaats", "workshop", "Inspecties en ServiceTasks", "⚒"),
+  HomeAction("Verkopen", "sales", "Centrale verkoopafronding", "€"),
+  HomeAction("Advertenties", "ads", "Tekst uit een fietsdossier", "↗"),
+  HomeAction("Reserveringen", "reservations", "Actieve holds beheren", "◷"),
+  HomeAction("Instellingen", "settings", "Pincode, biometrie en meldingen", "⚙"),
+)
+
 @Composable private fun HomeScreen(api: DemiApi, sessions: SessionStore, open: (String) -> Unit, logout: () -> Unit) {
-  val actions = listOf("QR scannen" to "scan", "Nieuwe fiets" to "new-bike", "Fietsvoorraad" to "inventory", "Accu’s" to "batteries", "Werkplaats" to "workshop", "Verkopen" to "sales", "Advertenties" to "ads", "Reserveringen" to "reservations", "Instellingen" to "settings")
   val scope = rememberCoroutineScope()
-  var notices by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var noticeError by remember { mutableStateOf<String?>(null) }
+  var notices by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+  var noticeError by remember { mutableStateOf<String?>(null) }
   var dashboard by remember { mutableStateOf<JSONObject?>(null) }
   var dashboardBusy by remember { mutableStateOf(false) }
+  var menuExpanded by remember { mutableStateOf(false) }
+
   fun loadDashboard() {
     if (dashboardBusy) return
     dashboardBusy = true
-    scope.launch { background { api.dashboard() }.onSuccess { dashboard = it.optJSONObject("dashboard") }.onFailure { }.also { dashboardBusy = false } }
+    scope.launch {
+      background { api.dashboard() }
+        .onSuccess { dashboard = it.optJSONObject("dashboard") }
+        .onFailure { /* Keep the last snapshot visible; the error is shown below. */ }
+        .also { dashboardBusy = false }
+    }
   }
-  LaunchedEffect(Unit) {
-    loadDashboard()
-    while (true) {
+
+  fun loadNotifications() {
+    scope.launch {
       background { api.notifications() }
         .onSuccess { json ->
           val entries = json.optJSONArray("notifications")
-          notices = (0 until (entries?.length() ?: 0)).map { entries!!.getJSONObject(it) }
-            .filter { sessions.notificationEnabled(it.optString("category")) }
+          notices = (0 until (entries?.length() ?: 0)).mapNotNull { index ->
+            entries?.optJSONObject(index)
+          }.filter { sessions.notificationEnabled(it.optString("category")) }
           noticeError = null
         }
-        .onFailure { noticeError = it.message }
-      delay(60_000)
+        .onFailure { noticeError = it.message ?: "Meldingen konden niet worden geladen." }
     }
   }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(dashboardBusy) { loadDashboard() }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    item { Text("Demi Fietsen", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary) }
-    item { Text("Medewerkers", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    dashboard?.let { item { DashboardSummary(it) } }
-    if (notices.isNotEmpty()) item { Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) { Column(Modifier.padding(14.dp)) { Text("Meldingen", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary); notices.take(3).forEach { notice -> Text("• ${notice.optString("title")}", modifier = Modifier.padding(top = 6.dp)); Text(notice.optString("body"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } } }
-    noticeError?.let { problem -> item { Text("Meldingen konden niet worden geladen: $problem", color = MaterialTheme.colorScheme.error) } }
-    items(actions) { (label, route) -> Card(onClick = { open(route) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxWidth().padding(20.dp)) } }
-    item { TextButton(onClick = logout) { Text("Uitloggen") } }
+
+  LaunchedEffect(Unit) {
+    loadDashboard()
+    loadNotifications()
+    while (true) {
+      delay(60_000)
+      loadDashboard()
+      loadNotifications()
+    }
+  }
+
+  val attention = dashboard?.let {
+    it.optInt("pendingOrders") + it.optInt("expiredReservations") +
+      it.optInt("incompleteWorkshop") + it.optInt("manualReviews") + it.optInt("lowAccessoryStock")
+  } ?: notices.size
+  val attentionRoute = dashboard?.let {
+    when {
+      it.optInt("expiredReservations") > 0 -> "reservations"
+      it.optInt("pendingOrders") > 0 || it.optInt("manualReviews") > 0 -> "sales"
+      it.optInt("incompleteWorkshop") > 0 -> "workshop"
+      it.optInt("lowAccessoryStock") > 0 -> "inventory"
+      else -> "inventory"
+    }
+  } ?: "inventory"
+  val displayName = sessions.userName()?.substringBefore(" ")?.trim().takeUnless { it.isNullOrBlank() }
+  val greeting = when (LocalTime.now().hour) {
+    in 5..11 -> "Goedemorgen"
+    in 12..17 -> "Goedemiddag"
+    else -> "Goedenavond"
+  }
+  val date = runCatching {
+    DateTimeFormatter.ofPattern("EEEE d MMMM", Locale("nl", "NL")).format(LocalDate.now())
+      .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("nl", "NL")) else it.toString() }
+  }.getOrDefault("")
+
+  Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    LazyColumn(
+      modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(bottom = 94.dp)
+        .pullToRefresh(dashboardBusy) { loadDashboard(); loadNotifications() },
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+      contentPadding = PaddingValues(top = 14.dp, bottom = 20.dp),
+    ) {
+      item { HomeHeader(date, "$greeting${displayName?.let { ", $it" } ?: ""}", attention) }
+      item {
+        AttentionCard(
+          count = attention,
+          onOpen = { if (attention > 0) open(attentionRoute) else menuExpanded = true },
+        )
+      }
+      item {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          HomePrimaryAction(homeActions[0], onClick = { open(homeActions[0].route) })
+          HomePrimaryAction(homeActions[1], secondary = true, onClick = { open(homeActions[1].route) })
+        }
+      }
+      dashboard?.let { item { DashboardSummary(it) } }
+      item { HomeSectionHeading("Vandaag", "Voorraad →", onClick = { open("inventory") }) }
+      items(todayItems(dashboard), key = { it.route + it.title }) { item ->
+        TodayAction(item, onClick = { open(item.route) })
+      }
+      item { HomeSectionHeading("Open acties", "Alles →", onClick = { if (attention > 0) open(attentionRoute) else menuExpanded = true }) }
+      if (notices.isEmpty()) {
+        item {
+          HomeInfoCard(
+            title = if (noticeError == null) "Geen open acties" else "Acties konden niet worden geladen",
+            body = noticeError ?: "Alles is bijgewerkt. Trek omlaag om opnieuw te laden.",
+          )
+        }
+      } else {
+        items(notices.take(5), key = { it.optString("category") + it.optString("title") }) { notice ->
+          NoticeAction(notice, onClick = { open(routeForNotice(notice)) })
+        }
+      }
+      item { SettingsCallout(onClick = { open("settings") }) }
+      item { TextButton(onClick = logout, modifier = Modifier.fillMaxWidth()) { Text("Uitloggen") } }
+    }
+    BottomMenu(
+      modifier = Modifier.align(Alignment.BottomCenter),
+      expanded = menuExpanded,
+      onExpandedChange = { menuExpanded = it },
+      onOpen = { route -> menuExpanded = false; open(route) },
+      onLogout = { menuExpanded = false; logout() },
+    )
+  }
+}
+
+private data class TodayItem(val time: String, val title: String, val subtitle: String, val route: String, val dot: Color)
+
+private fun todayItems(data: JSONObject?): List<TodayItem> {
+  if (data == null) return listOf(TodayItem("—", "Dashboard laden", "Even geduld…", "inventory", Color(0xFF78918A)))
+  val items = mutableListOf<TodayItem>()
+  if (data.optInt("incompleteWorkshop") > 0) items += TodayItem("Nu", "Werkplaats", "${data.optInt("incompleteWorkshop")} fiets(en) met open taken", "workshop", Color(0xFFD49331))
+  if (data.optInt("pendingOrders") + data.optInt("manualReviews") > 0) items += TodayItem("Nu", "Betaling controleren", "Order- en betaalstatus nakijken", "sales", Color(0xFF4D7FC3))
+  if (data.optInt("expiredReservations") > 0) items += TodayItem("Nu", "Reserveringen", "Verlopen holds vrijgeven of opvolgen", "reservations", Color(0xFFD49331))
+  if (items.isEmpty()) items += TodayItem("✓", "Voorraad bijgewerkt", "Geen urgente acties gevonden", "inventory", Color(0xFF4AA77A))
+  return items.take(3)
+}
+
+private fun routeForNotice(notice: JSONObject): String = when (notice.optString("category")) {
+  "reservations" -> "reservations"
+  "payments", "sales" -> "sales"
+  "workshop" -> "workshop"
+  "service", "appointments" -> "reservations"
+  else -> "inventory"
+}
+
+@Composable private fun HomeHeader(date: String, greeting: String, attention: Int) {
+  Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+    Column(Modifier.weight(1f)) {
+      if (date.isNotBlank()) Text(date, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 2.dp))
+      Text(greeting, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+    }
+    Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) {
+      Text(if (attention > 99) "99+" else attention.toString(), color = Color.White, style = MaterialTheme.typography.titleMedium)
+    }
+  }
+}
+
+@Composable private fun AttentionCard(count: Int, onOpen: () -> Unit) {
+  Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+      Column(Modifier.weight(1f)) {
+        Text("ACTIE VEREIST", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primaryContainer)
+        Text(if (count == 0) "Alles bijgewerkt" else "Je hebt $count open actie${if (count == 1) "" else "s"}", style = MaterialTheme.typography.titleLarge, color = Color.White)
+        Text(if (count == 0) "Er is niets dringends te doen." else "We beginnen met de belangrijkste.", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = .84f))
+      }
+      Button(onClick = onOpen, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = MaterialTheme.colorScheme.onPrimary), shape = RoundedCornerShape(11.dp)) { Text(if (count == 0) "Menu" else "Open lijst") }
+    }
+  }
+}
+
+@Composable private fun HomePrimaryAction(action: HomeAction, secondary: Boolean = false, onClick: () -> Unit) {
+  val container = if (secondary) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primary
+  val content = if (secondary) MaterialTheme.colorScheme.onPrimaryContainer else Color.White
+  Card(onClick = onClick, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = container)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      Box(Modifier.size(38.dp).background(if (secondary) Color.White else Color.White.copy(alpha = .18f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Text(action.icon, color = if (secondary) MaterialTheme.colorScheme.onPrimaryContainer else Color.White, style = MaterialTheme.typography.titleLarge) }
+      Column(Modifier.weight(1f)) { Text(action.label, style = MaterialTheme.typography.titleMedium, color = content); Text(action.hint, style = MaterialTheme.typography.bodySmall, color = content.copy(alpha = .78f)) }
+      Text("›", style = MaterialTheme.typography.headlineMedium, color = content)
+    }
+  }
+}
+
+@Composable private fun HomeSectionHeading(title: String, action: String, onClick: () -> Unit) {
+  Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
+    TextButton(onClick = onClick) { Text(action, color = MaterialTheme.colorScheme.primary) }
+  }
+}
+
+@Composable private fun TodayAction(item: TodayItem, onClick: () -> Unit) {
+  Card(onClick = onClick, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      Text(item.time, modifier = Modifier.width(42.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      Box(Modifier.size(10.dp).background(item.dot, CircleShape))
+      Column(Modifier.weight(1f)) { Text(item.title, style = MaterialTheme.typography.titleMedium); Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+      Text("›", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+  }
+}
+
+@Composable private fun NoticeAction(notice: JSONObject, onClick: () -> Unit) {
+  Card(onClick = onClick, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      Box(Modifier.size(32.dp).background(Color(0xFFFFF0D3), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) { Text("!", color = Color(0xFFA15C00), style = MaterialTheme.typography.titleMedium) }
+      Column(Modifier.weight(1f)) { Text(notice.optString("title", "Actie"), style = MaterialTheme.typography.titleMedium); Text(notice.optString("body"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+      Text("›", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+  }
+}
+
+@Composable private fun HomeInfoCard(title: String, body: String) {
+  Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+    Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+  }
+}
+
+@Composable private fun SettingsCallout(onClick: () -> Unit) {
+  Card(onClick = onClick, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .2f))) {
+    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      Text("⚙", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+      Column(Modifier.weight(1f)) { Text("Instellingen", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer); Text("Pincode, biometrie en meldingen", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .75f)) }
+      Text("›", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+    }
+  }
+}
+
+@Composable private fun BottomMenu(modifier: Modifier = Modifier, expanded: Boolean, onExpandedChange: (Boolean) -> Unit, onOpen: (String) -> Unit, onLogout: () -> Unit) {
+  Box(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+    Button(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+      Text(if (expanded) "Menu sluiten" else "Menu", style = MaterialTheme.typography.titleMedium)
+      Spacer(Modifier.width(8.dp)); Text(if (expanded) "⌃" else "⌄", style = MaterialTheme.typography.titleLarge)
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }, modifier = Modifier.fillMaxWidth(.92f)) {
+      homeActions.forEach { action ->
+        DropdownMenuItem(
+          text = { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) { Text(action.icon, color = MaterialTheme.colorScheme.primary); Column { Text(action.label); Text(action.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } } },
+          onClick = { onOpen(action.route) },
+        )
+      }
+      HorizontalDivider()
+      DropdownMenuItem(text = { Text("Uitloggen") }, onClick = onLogout)
+    }
   }
 }
 

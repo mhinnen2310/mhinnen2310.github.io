@@ -35,6 +35,28 @@
   app ook vanaf de door Android Studio meegeleverde nieuwere JDK betrouwbaar kan
   bouwen.
 
+## Dashboard- en navigatie-update (31 augustus 2026)
+
+- Het startscherm volgt nu de goedgekeurde Demi Fietsen-huisstijl: diepgroene
+  actiekaart, gebroken witte achtergrond, begroeting met datum, open acties en
+  een compacte voorraad-/werkplaatsweergave.
+- De oude paarse shell en de oude uitlegtekst zijn uit het hoofdscherm verwijderd.
+  Dashboard en meldingen laden automatisch bij openen, verversen periodiek en
+  ondersteunen swipe-to-refresh.
+- De losse onderste navigatieknoppen zijn vervangen door één brede knop
+  **Menu**. De dropdown bevat alle bestaande schermen en Uitloggen, zodat geen
+  route verloren gaat en het scherm compact blijft.
+- De begroeting gebruikt de naam uit het server-loginantwoord wanneer die
+  beschikbaar is; de naam wordt bij uitloggen samen met tokens gewist.
+- Mobiele inventarisfilters accepteren alleen echte `BikeStatus`-waarden. Een
+  onbekende status geeft een veilige 400 in plaats van een Prisma-fout.
+- Vrijgeven vanuit web- of mobiele reserveringsdetails is gekoppeld aan het
+  exacte reserverings-ID. Daardoor kan een gelijktijdige of oudere actieve regel
+  niet per ongeluk worden vrijgegeven.
+- Mobiele foutantwoorden geven alleen expliciet als veilig gemarkeerde
+  domeinmeldingen terug; onbekende database/providerfouten blijven intern en
+  krijgen een generieke melding.
+
 ## Migrations
 
 - `20260904000000_p1f_mobile_sessions`: maakt `MobileSession` met de benodigde
@@ -65,8 +87,13 @@
 
 - Android SDK Platform 35 is opnieuw geïnstalleerd en gecontroleerd op
   `android.jar`.
-- `:app:assembleDebug` is succesvol uitgevoerd op 30 augustus 2026.
-- `npm run typecheck` en `npm test`: 48 tests geslaagd, waaronder nieuwe
-  mobiele sessie-/rotatie-/revocatietests.
+- `:app:assembleDebug` is succesvol uitgevoerd op 31 augustus 2026. De APK is
+  daarna met succes op de lokale Pixel 9-emulator geïnstalleerd en gestart.
+- `npm run lint`, `npm run typecheck` en `npm test` zijn succesvol: 20
+  testbestanden en 58 tests groen, inclusief de reserverings-ID- en veilige
+  mobiele-foutrespons-regressietests.
+- `npm run build` is succesvol. De lokale build meldt alleen de bekende
+  database-waarschuwingen omdat de ontwikkel-Postgres niet draait; de pagina's
+  vallen gecontroleerd terug en de build voltooit.
 - `git diff --check` is schoon; de melding over Prisma betreft uitsluitend de
   Windows-regelafbreking van een bestaand bestand.

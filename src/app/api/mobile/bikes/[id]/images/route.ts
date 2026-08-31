@@ -45,5 +45,5 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     } else return NextResponse.json({ error: "Ongeldige fotoactie." }, { status: 400 });
     await audit("mobile.bike_image_updated", "Bike", bikeId, { action: body.action, imageId: body.imageId }, actor);
     return mobileOk({ ok: true });
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Foto kon niet worden bijgewerkt." }, { status: 400 }); }
+  } catch (error) { return mobileError(error, "Foto kon niet worden bijgewerkt."); }
 }

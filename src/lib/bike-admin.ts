@@ -176,10 +176,15 @@ export async function createBikeDossier(body: Record<string, unknown>, actor: Se
   return bike;
 }
 
-export async function unreserveBike(bikeId: string, actor: SessionUser | null, to: "AVAILABLE" | "READY" = "AVAILABLE"): Promise<void> {
+export async function unreserveBike(
+  bikeId: string,
+  actor: SessionUser | null,
+  to: "AVAILABLE" | "READY" = "AVAILABLE",
+  reservationId?: string,
+): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findFirst({
-      where: { bikeId, status: "ACTIVE" },
+      where: { ...(reservationId ? { id: reservationId } : {}), bikeId, status: "ACTIVE" },
       select: { id: true, source: true, orderId: true },
     });
     if (!reservation) throw new BikeAdminError("Deze fiets heeft geen actieve reservering.");
@@ -197,7 +202,7 @@ export async function unreserveBike(bikeId: string, actor: SessionUser | null, t
     });
     if (updated.count !== 1) throw new BikeAdminError("De fiets kan niet veilig worden vrijgegeven.");
   });
-  await audit(`bike.unreserved:${to}`, "Bike", bikeId, null, actor);
+  await audit(`bike.unreserved:${to}`, "Bike", bikeId, { reservationId: reservationId ?? null }, actor);
 }
 
 // --- Workshop tasks ---------------------------------------------------------------

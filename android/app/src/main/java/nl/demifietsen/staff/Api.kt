@@ -91,6 +91,7 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
     val body = JSONObject().put("email", email).put("password", password).put("deviceId", sessions.deviceId())
     val result = execute(request("/api/mobile/auth/login", "POST", body))
     sessions.saveTokens(result.getString("accessToken"), result.getString("refreshToken"))
+    result.optJSONObject("user")?.let(sessions::saveUser)
     return result
   }
   @Synchronized fun refresh(): JSONObject {
@@ -128,11 +129,16 @@ class SessionStore(context: Context) {
   fun pushToken() = prefs.getString("push_token", null)
   fun savePushToken(token: String) = prefs.edit().putString("push_token", token).apply()
   fun clearPushToken() = prefs.edit().remove("push_token").apply()
+  fun saveUser(user: JSONObject) {
+    val name = user.optString("name").trim()
+    prefs.edit().putString("user_name", name.ifBlank { user.optString("email") }).apply()
+  }
+  fun userName() = prefs.getString("user_name", null)
   // The first-run screen immediately checks hasPin() after this call. Commit
   // synchronously so that Compose cannot render the setup screen once more
   // while SharedPreferences.apply() is still queued.
   fun savePin(pin: String) { val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }; prefs.edit().putString("pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP)).putString("pin_hash", pinHash(pin, salt)).commit() }
   fun changePin(current: String, next: String): Boolean { if (!verifyPin(current)) return false; savePin(next); return true }
   fun verifyPin(pin: String): Boolean { val encoded = prefs.getString("pin_salt", null) ?: return false; val expected = prefs.getString("pin_hash", null) ?: return false; return java.security.MessageDigest.isEqual(expected.toByteArray(), pinHash(pin, Base64.decode(encoded, Base64.NO_WRAP)).toByteArray()) }
-  fun clear() = prefs.edit().remove("access_token").remove("refresh_token").remove("pin_hash").remove("pin_salt").remove("biometric_enabled").remove("push_token").apply()
+  fun clear() = prefs.edit().remove("access_token").remove("refresh_token").remove("pin_hash").remove("pin_salt").remove("biometric_enabled").remove("push_token").remove("user_name").apply()
 }

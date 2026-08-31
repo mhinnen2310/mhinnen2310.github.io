@@ -1,6 +1,20 @@
 import { NextResponse } from "next/server";
 import { MobileAuthError, requireMobileStaff } from "./mobile-auth";
 
+// Only domain errors with deliberately user-facing messages may cross the
+// mobile API boundary. Unknown errors (including Prisma/provider failures)
+// are logged by the route and receive its generic fallback instead.
+const SAFE_DOMAIN_ERROR_NAMES = new Set([
+  "BikeAdminError",
+  "BikeImageError",
+  "BikeInputError",
+  "BatteryError",
+  "OrderStateError",
+  "QrTagError",
+  "StaffSaleError",
+  "WorkshopError",
+]);
+
 /** Shared bearer guard for mobile-only route handlers. */
 export async function mobileActor(req: Request) {
   try {
@@ -17,7 +31,7 @@ export async function mobileActor(req: Request) {
 }
 
 export function mobileError(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : fallback;
+  const message = error instanceof Error && SAFE_DOMAIN_ERROR_NAMES.has(error.name) ? error.message : fallback;
   return NextResponse.json({ error: message }, { status: 400, headers: { "cache-control": "no-store" } });
 }
 

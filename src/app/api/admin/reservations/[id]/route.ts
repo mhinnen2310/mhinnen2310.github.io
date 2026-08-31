@@ -16,7 +16,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const reservation = await prisma.reservation.findUnique({ where: { id }, select: { bikeId: true } });
   if (!reservation) return NextResponse.json({ error: "Reservering niet gevonden." }, { status: 404 });
   try {
-    await unreserveBike(reservation.bikeId, actor, body.releaseTo);
+    await unreserveBike(reservation.bikeId, actor, body.releaseTo, id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof BikeAdminError) return NextResponse.json({ error: error.message }, { status: 400 });

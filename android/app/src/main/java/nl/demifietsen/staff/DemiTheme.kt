@@ -6,13 +6,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val DemiColors = lightColorScheme(
-  primary = Color(0xFF2A533D), onPrimary = Color.White,
-  primaryContainer = Color(0xFFDfece2), onPrimaryContainer = Color(0xFF1D372A),
-  secondary = Color(0xFFA35A15), onSecondary = Color.White,
-  background = Color(0xFFF7F6F3), onBackground = Color(0xFF1F2421),
-  surface = Color.White, onSurface = Color(0xFF1F2421),
-  surfaceVariant = Color(0xFFF1F6F2), onSurfaceVariant = Color(0xFF55605A),
-  outline = Color(0xFFE4E2DB), error = Color(0xFFA1352C),
+  // The approved app concept uses the same green/white identity as the site.
+  // Keeping the palette here also prevents Material's purple defaults from
+  // leaking into screens that do not provide their own colors.
+  primary = Color(0xFF12624F), onPrimary = Color.White,
+  primaryContainer = Color(0xFFDFF2EA), onPrimaryContainer = Color(0xFF0B4437),
+  secondary = Color(0xFFA15C00), onSecondary = Color.White,
+  background = Color(0xFFF5F8F6), onBackground = Color(0xFF19302B),
+  surface = Color.White, onSurface = Color(0xFF19302B),
+  surfaceVariant = Color(0xFFEEF4F0), onSurfaceVariant = Color(0xFF63746F),
+  outline = Color(0xFFDBE5E0), error = Color(0xFFA1352C),
 )
 
 @Composable fun DemiTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = DemiColors, content = content)
