@@ -20,12 +20,7 @@ export default async function AdminBikePage(props: { params: Promise<{ id: strin
         serviceTasks: { orderBy: [{ completed: "asc" }, { createdAt: "desc" }], include: { completedBy: { select: { name: true, email: true } } } },
         priceHistory: { orderBy: { createdAt: "desc" }, take: 50 },
         intakeRecord: true,
-        currentBattery: {
-          include: {
-            assignments: { orderBy: { assignedAt: "desc" }, take: 20 },
-            repairs: { orderBy: { createdAt: "desc" }, take: 20 },
-          },
-        },
+        currentBattery: { select: { id: true, assetCode: true, status: true, manufacturer: true, model: true, serialNumber: true, nominalWh: true, labelPhotoKey: true } },
       },
     }),
     prisma.auditLog.findMany({

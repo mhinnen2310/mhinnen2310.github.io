@@ -47,7 +47,7 @@ export function ensureBikeIntake(bikeId: string) {
 export async function getIntakeReadiness(bikeId: string): Promise<Readiness> {
   const bike = await prisma.bike.findUnique({
     where: { id: bikeId },
-    select: { frameSerialRef: true, isElectric: true, acquisitionSource: true, acquisitionDate: true, acquisitionCostCents: true, intakeRecord: true },
+    select: { frameSerialRef: true, isElectric: true, currentBatteryId: true, acquisitionSource: true, acquisitionDate: true, acquisitionCostCents: true, intakeRecord: true },
   });
   if (!bike) throw new WorkshopError("Fiets niet gevonden.");
   const intake = bike.intakeRecord;
@@ -55,7 +55,7 @@ export async function getIntakeReadiness(bikeId: string): Promise<Readiness> {
   if (!bike.frameSerialRef?.trim() || !intake?.frameSerialPresent) missing.push("Framenummer controleren");
   if (!intake?.keysPresent) missing.push("Sleutels registreren");
   if (!intake?.chargerPresent) missing.push("Lader registreren");
-  if (bike.isElectric && !intake?.batteryPresent) missing.push("Accu registreren");
+  if (bike.isElectric && !intake?.batteryPresent && !bike.currentBatteryId) missing.push("Accu registreren");
   if (!intake?.defectsAssessed) missing.push("Bekende gebreken beoordelen");
   if (!bike.acquisitionSource?.trim()) missing.push("Inkoopbron invullen");
   if (!bike.acquisitionDate) missing.push("Inkoopdatum invullen");

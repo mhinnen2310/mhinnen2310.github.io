@@ -34,6 +34,15 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
   fun bike(id: String) = execute(request("/api/mobile/bikes/$id"))
   fun updateBike(id: String, payload: JSONObject) = execute(request("/api/mobile/bikes/$id", "PATCH", payload))
   fun inventory() = execute(request("/api/mobile/bikes"))
+  fun batteries() = execute(request("/api/mobile/batteries"))
+  fun createBattery(payload: JSONObject) = execute(request("/api/mobile/batteries", "POST", payload))
+  fun battery(id: String) = execute(request("/api/mobile/batteries/$id"))
+  fun updateBattery(id: String, payload: JSONObject) = execute(request("/api/mobile/batteries/$id", "PATCH", payload))
+  fun assignBattery(id: String, bikeId: String, note: String? = null): JSONObject {
+    val body = JSONObject().put("bikeId", bikeId); if (!note.isNullOrBlank()) body.put("note", note); return execute(request("/api/mobile/batteries/$id/assign", "POST", body))
+  }
+  fun unassignBattery(id: String) = execute(request("/api/mobile/batteries/$id/assign", "DELETE", JSONObject()))
+  fun addBatteryRepair(id: String, payload: JSONObject) = execute(request("/api/mobile/batteries/$id/repairs", "POST", payload))
   fun advertisement(id: String) = execute(request("/api/mobile/bikes/$id/advertisement"))
   fun notifications() = execute(request("/api/mobile/notifications"))
   fun registerPushToken(token: String): JSONObject {

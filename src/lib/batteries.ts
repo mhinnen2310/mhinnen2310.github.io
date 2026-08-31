@@ -148,6 +148,7 @@ async function syncLegacyBikeFieldsTx(tx: Pick<Prisma.TransactionClient, "bike">
 
 export async function createBatteryAsset(body: Record<string, unknown>, actor: SessionUser) {
   const data = parseBatteryInput(body);
+  if (data.status === "ASSIGNED") throw new BatteryError("Koppel een nieuwe accu eerst via het accudossier aan een fiets.");
   const created = await prisma.$transaction(async (tx) => {
     const assetCode = await nextBatteryAssetCodeInTx(tx);
     return tx.battery.create({ data: { ...(data as Prisma.BatteryUncheckedCreateInput), assetCode }, select: { id: true, assetCode: true, status: true } });

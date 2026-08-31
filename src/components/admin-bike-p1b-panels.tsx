@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { mediaWidthUrl } from "@/lib/media";
@@ -18,6 +19,15 @@ type Intake = {
   theftCheckDate: string | Date | null;
   theftCheckResult: string | null;
 } | null;
+type IntakeCheckKey = "frameSerialPresent" | "keysPresent" | "chargerPresent" | "batteryPresent" | "defectsAssessed" | "theftCheckCompleted";
+const intakeChecks: Array<[IntakeCheckKey, string]> = [
+  ["frameSerialPresent", "Framenummer aanwezig en gecontroleerd"],
+  ["keysPresent", "Sleutels aanwezig"],
+  ["chargerPresent", "Lader aanwezig"],
+  ["batteryPresent", "Accu aanwezig"],
+  ["defectsAssessed", "Bekende gebreken beoordeeld"],
+  ["theftCheckCompleted", "Diefstalcontrole uitgevoerd"],
+];
 type Task = {
   id: string;
   description: string;
@@ -64,10 +74,12 @@ async function responseError(response: Response, fallback: string) {
 export function BikeIntakePanel({
   bikeId,
   intake,
+  batteryLinked = false,
   readiness,
 }: {
   bikeId: string;
   intake: Intake;
+  batteryLinked?: boolean;
   readiness: Readiness;
 }) {
   const router = useRouter();
@@ -111,7 +123,14 @@ export function BikeIntakePanel({
       setBusy(false);
     }
   }
-  const checked = (key: keyof NonNullable<Intake>) => Boolean(intake?.[key]);
+  const [checks, setChecks] = useState<Record<IntakeCheckKey, boolean>>(() => ({
+    frameSerialPresent: Boolean(intake?.frameSerialPresent),
+    keysPresent: Boolean(intake?.keysPresent),
+    chargerPresent: Boolean(intake?.chargerPresent),
+    batteryPresent: Boolean(intake?.batteryPresent || batteryLinked),
+    defectsAssessed: Boolean(intake?.defectsAssessed),
+    theftCheckCompleted: Boolean(intake?.theftCheckCompleted),
+  }));
   const date = intake?.theftCheckDate
     ? new Date(intake.theftCheckDate).toISOString().slice(0, 10)
     : "";
@@ -119,35 +138,19 @@ export function BikeIntakePanel({
     <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
       <h3 className="text-lg font-bold text-ink">Intakecontrole</h3>
       <p className="mt-1 text-sm text-ink-soft">
-        Inkoopbron, -datum en -prijs staan in het kostendossier hierboven.
+        Eén korte controlelijst. Inkoopbron, -datum en -prijs staan bij Kosten.
       </p>
       <div className="mt-3">
         <Notice readiness={readiness} label="Intake" />
       </div>
       {error && <p className="mt-3 text-sm text-state-error">{error}</p>}
       <form onSubmit={save} className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="space-y-2">
-          {(
-            [
-              ["frameSerialPresent", "Framenummer aanwezig en gecontroleerd"],
-              ["keysPresent", "Sleutels aanwezig"],
-              ["chargerPresent", "Lader aanwezig"],
-              ["batteryPresent", "Accu aanwezig"],
-              ["defectsAssessed", "Bekende gebreken beoordeeld"],
-              ["theftCheckCompleted", "Diefstalcontrole uitgevoerd"],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="flex gap-2 text-sm text-ink-soft">
-              <input
-                name={key}
-                value="yes"
-                type="checkbox"
-                defaultChecked={checked(key)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <fieldset className="rounded-lg border border-line bg-surface p-3"><legend className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-faint">Controlepunten</legend><p className="mt-1 text-xs text-ink-faint">Klik een regel aan zodra die is gecontroleerd.</p><div className="mt-1 divide-y divide-line">
+          {intakeChecks.map(([key, label]) => {
+            const active = checks[key];
+            return <div key={key} className="flex items-center gap-2 py-1"><button type="button" aria-pressed={active} onClick={() => setChecks((current) => ({ ...current, [key]: !current[key] }))} className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left text-sm text-ink-soft hover:bg-card"><span aria-hidden className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${active ? "border-state-success bg-state-success/10 text-state-success" : "border-line text-ink-faint"}`}>{active ? "✓" : ""}</span><span>{label}</span></button>{active && <input type="hidden" name={key} value="yes" />}</div>;
+          })}
+        </div></fieldset>
         <div className="grid gap-3">
           <label className="text-sm text-ink-soft">
             Datum diefstalcontrole
@@ -189,9 +192,11 @@ export function BikeIntakePanel({
 
 export function BatteryLabelPanel({
   bikeId,
+  batteryId,
   photoKey,
 }: {
   bikeId: string;
+  batteryId?: string;
   photoKey: string | null;
 }) {
   const router = useRouter();
@@ -206,7 +211,7 @@ export function BatteryLabelPanel({
     try {
       const body = new FormData();
       body.set("file", file);
-      const response = await fetch(`/api/admin/bikes/${bikeId}/battery-label`, {
+      const response = await fetch(batteryId ? `/api/admin/batteries/${batteryId}/label` : `/api/admin/bikes/${bikeId}/battery-label`, {
         method: "POST",
         body,
       });
@@ -258,9 +263,11 @@ export function BatteryLabelPanel({
 
 export function BatteryDossierPanel({
   bikeId,
+  currentBattery,
   battery,
 }: {
   bikeId: string;
+  currentBattery?: { id: string; assetCode: string; status: string; manufacturer: string | null; model: string | null; serialNumber: string | null; nominalWh: number | null } | null;
   battery: {
     manufacturer: string | null;
     model: string | null;
@@ -281,6 +288,15 @@ export function BatteryDossierPanel({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  async function detach() {
+    if (!currentBattery || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const response = await fetch(`/api/admin/batteries/${currentBattery.id}/assign`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "Losgekoppeld vanuit fietsintake." }) });
+      if (!response.ok) { setError(await responseError(response, "De accu kon niet worden losgekoppeld.")); return; }
+      router.refresh();
+    } catch { setError("De verbinding is mislukt."); } finally { setBusy(false); }
+  }
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -354,13 +370,12 @@ export function BatteryDossierPanel({
     : "";
   return (
     <section className="rounded-xl border border-line bg-card p-5 shadow-sm">
-      <h3 className="text-lg font-bold text-ink">Accudossier</h3>
-      <p className="mt-1 text-sm text-ink-soft">
-        Nominale waarden, metingen en schattingen blijven nadrukkelijk
-        gescheiden.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-lg font-bold text-ink">Accu</h3><p className="mt-1 text-sm text-ink-soft">De accu is een zelfstandig dossier en kan later aan een andere fiets worden gekoppeld.</p></div>{currentBattery ? <div className="flex flex-wrap items-center gap-2 text-sm"><Link href={`/admin/accu/${currentBattery.id}`} className="rounded-lg border border-brand-700 px-3 py-2 font-semibold text-brand-800">{currentBattery.assetCode} openen</Link><button type="button" onClick={detach} disabled={busy} className="rounded-lg border border-state-error/40 px-3 py-2 font-semibold text-state-error disabled:opacity-60">Loskoppelen</button></div> : <Link href="/admin/accu" className="rounded-lg border border-brand-700 px-3 py-2 text-sm font-semibold text-brand-800">Accu registreren / koppelen</Link>}</div>
+      {currentBattery && <p className="mt-2 rounded-lg bg-state-success/10 px-3 py-2 text-sm text-state-success">Nu gekoppeld: <strong>{[currentBattery.manufacturer, currentBattery.model].filter(Boolean).join(" ") || currentBattery.assetCode}</strong>{currentBattery.nominalWh ? ` · ${currentBattery.nominalWh} Wh` : ""}</p>}
+       {!currentBattery && <p className="mt-1 text-sm text-ink-soft">Legacy-fietsvelden hieronder blijven beschikbaar voor bestaande verkoop- en publicatiesnapshots. Registreer daarna een zelfstandige accu via Accu’s.</p>}
+       {currentBattery && <p className="mt-2 text-xs text-ink-faint">Nieuwe metingen en reparaties beheer je in het zelfstandige accudossier hierboven. De oude velden zijn bewust verborgen om dubbele invoer te voorkomen.</p>}
       {error && <p className="mt-3 text-sm text-state-error">{error}</p>}
-      <form onSubmit={save} className="mt-4 grid gap-3 sm:grid-cols-2">
+       {!currentBattery && <form onSubmit={save} className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="text-sm text-ink-soft">
           Fabrikant
           <input
@@ -510,7 +525,7 @@ export function BatteryDossierPanel({
         >
           {busy ? "Opslaan…" : "Accudossier opslaan"}
         </button>
-      </form>
+       </form>}
     </section>
   );
 }
@@ -785,8 +800,8 @@ export function BikeWorkshopPanel({
                 >
                   Heropenen
                 </button>
-              )}
-            </div>
+          )}
+        </div>
           </li>
         ))}
       </ul>

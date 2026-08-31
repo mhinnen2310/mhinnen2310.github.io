@@ -30,7 +30,11 @@ async function mediaVisibility(key: string): Promise<MediaVisibility | null> {
 
   const scope = key.split("/", 1)[0];
   if (scope === "battery-labels") {
-    return await prisma.bike.findFirst({ where: { batteryLabelPhotoKey: key }, select: { id: true } }) ? "private" : null;
+    const [bikeLabel, batteryLabel] = await Promise.all([
+      prisma.bike.findFirst({ where: { batteryLabelPhotoKey: key }, select: { id: true } }),
+      prisma.battery.findFirst({ where: { labelPhotoKey: key }, select: { id: true } }),
+    ]);
+    return bikeLabel || batteryLabel ? "private" : null;
   }
   if (scope === "workshop") {
     return await prisma.serviceTask.findFirst({ where: { photoKeys: { has: key } }, select: { id: true } }) ? "private" : null;

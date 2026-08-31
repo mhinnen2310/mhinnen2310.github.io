@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -145,6 +148,7 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
   LaunchedEffect(deepLinkToken) { if (deepLinkToken != null) screen = "scan" }
   when (screen) {
     "inventory" -> InventoryScreen(api, { id -> screen = "bike:$id" }) { screen = "home" }
+    "batteries" -> BatteryInventoryScreen(api) { screen = "home" }
     "scan" -> QrLookupScreen(api, deepLinkToken, consumeDeepLink, { id -> screen = "bike:$id" }) { screen = "home" }
     "new-bike" -> NewBikeScreen(api) { screen = "home" }
     "workshop" -> WorkshopScreen(api) { screen = "home" }
@@ -157,7 +161,7 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
 }
 
 @Composable private fun HomeScreen(api: DemiApi, sessions: SessionStore, open: (String) -> Unit, logout: () -> Unit) {
-  val actions = listOf("QR scannen" to "scan", "Nieuwe fiets" to "new-bike", "Voorraad" to "inventory", "Werkplaats" to "workshop", "Verkopen" to "sales", "Advertenties" to "ads", "Reserveringen" to "reservations", "Instellingen" to "settings")
+  val actions = listOf("QR scannen" to "scan", "Nieuwe fiets" to "new-bike", "Fietsvoorraad" to "inventory", "Accu’s" to "batteries", "Werkplaats" to "workshop", "Verkopen" to "sales", "Advertenties" to "ads", "Reserveringen" to "reservations", "Instellingen" to "settings")
   var notices by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var noticeError by remember { mutableStateOf<String?>(null) }
   LaunchedEffect(Unit) {
     while (true) {
@@ -190,6 +194,40 @@ private suspend fun <T> background(action: () -> T): Result<T> = withContext(Dis
     Button(enabled = !busy, onClick = { busy = true; error = null; scope.launch { background { api.inventory() }.onSuccess { result -> rows = (0 until result.getJSONArray("bikes").length()).map { result.getJSONArray("bikes").getJSONObject(it) } }.onFailure { error = it.message }; busy = false } }) { Text("Voorraad verversen") }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }; if (busy) CircularProgressIndicator(Modifier.padding(16.dp))
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) { items(rows) { bike -> Card(onClick = { openBike(bike.optString("id")) }) { Column(Modifier.padding(14.dp)) { Text(bike.optString("title")); Text("${bike.optString("inventoryCode")} · ${bike.optString("status")}", color = MaterialTheme.colorScheme.onSurfaceVariant); Text("€ ${(bike.optInt("priceCents") / 100.0)}") } } } }
+  }
+}
+
+@Composable private fun BatteryInventoryScreen(api: DemiApi, back: () -> Unit) {
+  val scope = rememberCoroutineScope(); var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var bikes by remember { mutableStateOf<List<JSONObject>>(emptyList()) }; var selected by remember { mutableStateOf<JSONObject?>(null) }; var manufacturer by remember { mutableStateOf("") }; var model by remember { mutableStateOf("") }; var serial by remember { mutableStateOf("") }; var voltage by remember { mutableStateOf("") }; var wh by remember { mutableStateOf("") }; var bikeId by remember { mutableStateOf("") }; var bikeMenuOpen by remember { mutableStateOf(false) }; var repair by remember { mutableStateOf("") }; var message by remember { mutableStateOf<String?>(null) }; var busy by remember { mutableStateOf(false) }
+  fun load() { busy = true; scope.launch {
+    background { api.batteries() }.onSuccess { json -> val list = json.optJSONArray("batteries"); rows = (0 until (list?.length() ?: 0)).map { list!!.getJSONObject(it) } }.onFailure { message = it.message }
+    background { api.inventory() }.onSuccess { json -> val list = json.optJSONArray("bikes"); bikes = (0 until (list?.length() ?: 0)).map { list!!.getJSONObject(it) } }.onFailure { message = it.message }
+    busy = false
+  } }
+  LaunchedEffect(Unit) { load() }
+  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    item { TextButton(onClick = back) { Text("← Terug") }; Text("Accu’s", style = MaterialTheme.typography.headlineMedium); Text("Registreer en repareer accu’s los van fietsen. Koppelen kan later.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    item { Text("Nieuwe accu", style = MaterialTheme.typography.titleLarge) }
+    item { OutlinedTextField(manufacturer, { manufacturer = it }, label = { Text("Fabrikant") }, modifier = Modifier.fillMaxWidth()) }
+    item { OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth()) }
+    item { OutlinedTextField(serial, { serial = it }, label = { Text("Serienummer") }, modifier = Modifier.fillMaxWidth()) }
+    item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(voltage, { voltage = it.filter(Char::isDigit) }, label = { Text("V") }, modifier = Modifier.weight(1f)); OutlinedTextField(wh, { wh = it.filter(Char::isDigit) }, label = { Text("Wh") }, modifier = Modifier.weight(1f)) } }
+    item { Button(enabled = !busy, onClick = { busy = true; scope.launch { background { api.createBattery(JSONObject().put("manufacturer", manufacturer).put("model", model).put("serialNumber", serial).put("voltage", voltage.toIntOrNull()).put("nominalWh", wh.toIntOrNull()).put("status", "INTAKE")) }.onSuccess { message = "Accu ${it.optString("assetCode")} geregistreerd."; manufacturer = ""; model = ""; serial = ""; voltage = ""; wh = ""; load() }.onFailure { message = it.message }; busy = false } }, modifier = Modifier.fillMaxWidth()) { Text("Accu registreren") } }
+    message?.let { item { Text(it, color = if (it.startsWith("Accu")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
+    item { Text("Geregistreerde accu’s", style = MaterialTheme.typography.titleLarge) }
+    items(rows) { battery -> Card(onClick = { selected = battery }) { Column(Modifier.padding(14.dp)) { Text(battery.optString("assetCode"), style = MaterialTheme.typography.titleMedium); Text(listOf(battery.optString("manufacturer"), battery.optString("model")).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Onbekend merk/model" }); Text("${battery.optString("status")} · ${battery.optInt("voltage").takeIf { it > 0 }?.let { "$it V" } ?: ""} ${battery.optInt("nominalWh").takeIf { it > 0 }?.let { "$it Wh" } ?: ""}", color = MaterialTheme.colorScheme.onSurfaceVariant); battery.optJSONObject("currentBike")?.let { Text("Gekoppeld aan ${it.optString("inventoryCode")}") } ?: Text("Los beschikbaar", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+    selected?.let { battery ->
+      item { Text("Accu ${battery.optString("assetCode")} bedienen", style = MaterialTheme.typography.titleLarge) }
+      item { Box {
+        Button(onClick = { bikeMenuOpen = true }, enabled = bikes.isNotEmpty(), modifier = Modifier.fillMaxWidth()) { Text(bikes.firstOrNull { it.optString("id") == bikeId }?.let { "${it.optString("inventoryCode")} · ${it.optString("title")}" } ?: if (bikes.isEmpty()) "Geen fietsen beschikbaar" else "Kies een fiets") }
+        DropdownMenu(expanded = bikeMenuOpen, onDismissRequest = { bikeMenuOpen = false }) { bikes.forEach { bike -> DropdownMenuItem(text = { Text("${bike.optString("inventoryCode")} · ${bike.optString("title")}") }, onClick = { bikeId = bike.optString("id"); bikeMenuOpen = false }) } }
+      } }
+      item { OutlinedTextField(bikeId, { bikeId = it }, label = { Text("Fiets-id (optioneel, voor handmatig zoeken)") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+      item { Button(enabled = !busy && bikeId.isNotBlank(), onClick = { busy = true; scope.launch { background { api.assignBattery(battery.getString("id"), bikeId) }.onSuccess { message = "Accu gekoppeld."; bikeId = ""; load() }.onFailure { message = it.message }; busy = false } }) { Text("Aan fiets koppelen") } }
+      item { TextButton(enabled = !busy, onClick = { busy = true; scope.launch { background { api.unassignBattery(battery.getString("id")) }.onSuccess { message = "Accu losgekoppeld."; load() }.onFailure { message = it.message }; busy = false } }) { Text("Loskoppelen") } }
+      item { OutlinedTextField(repair, { repair = it }, label = { Text("Korte accureparatie") }, modifier = Modifier.fillMaxWidth()) }
+      item { Button(enabled = !busy && repair.isNotBlank(), onClick = { busy = true; scope.launch { background { api.addBatteryRepair(battery.getString("id"), JSONObject().put("description", repair)) }.onSuccess { message = "Reparatie toegevoegd."; repair = "" }.onFailure { message = it.message }; busy = false } }) { Text("Reparatie toevoegen") } }
+    }
   }
 }
 
