@@ -31,6 +31,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -53,6 +55,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
@@ -406,8 +409,8 @@ private fun routeForNotice(notice: JSONObject): String = when (notice.optString(
   }
 }
 
-@Composable private fun HomeInfoCard(title: String, body: String) {
-  Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
+@Composable private fun HomeInfoCard(title: String, body: String, modifier: Modifier = Modifier) {
+  Card(modifier = modifier, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
     Column(Modifier.fillMaxWidth().padding(14.dp)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
   }
 }
@@ -459,16 +462,277 @@ private fun routeForNotice(notice: JSONObject): String = when (notice.optString(
 @Composable private fun DashboardMetric(label: String, value: Any) { Column { Text(value.toString(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface); Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 private fun euro(cents: Int) = "€ ${"%.2f".format(java.util.Locale.US, cents / 100.0)}"
 
+private val bikeStatusOptions = listOf(
+  "" to "Alle statussen", "INTAKE" to "Intake", "WORKSHOP" to "Werkplaats",
+  "READY" to "Klaar", "AVAILABLE" to "Beschikbaar", "RESERVED" to "Gereserveerd",
+  "SALE_PENDING" to "Verkoop wordt afgerond", "SOLD" to "Verkocht", "ARCHIVED" to "Gearchiveerd",
+)
+
+private val bikeTypeOptions = listOf(
+  "E-bike" to "E-bike", "Stadsfiets" to "Stadsfiets", "Hybride" to "Hybride",
+  "Mountainbike" to "Mountainbike", "Racefiets" to "Racefiets", "Bakfiets" to "Bakfiets", "Overig" to "Overig",
+)
+
+private val inspectionOptions = listOf(
+  "" to "Nog niet beoordeeld", "PASS" to "Goed", "ATTENTION" to "Aandacht nodig",
+  "FAIL" to "Afkeur", "NOT_APPLICABLE" to "Niet van toepassing",
+)
+
+// Display order mirrors the backend checklist. The backend still validates
+// both the key and result; this list is presentation-only.
+private val inspectionChecklist = listOf(
+  "front_brake" to "Voorrem", "rear_brake" to "Achterrem", "tyres" to "Banden", "wheels" to "Wielen",
+  "headset" to "Balhoofd", "bearings" to "Lagers", "drivetrain" to "Aandrijving", "gears" to "Versnellingen",
+  "lights" to "Verlichting", "motor" to "Motor", "display" to "Display", "battery" to "Accu", "charger" to "Lader",
+)
+
+private val yesNoOptions = listOf("true" to "Ja", "false" to "Nee")
+
+@Composable private fun ChoiceDropdown(
+  label: String,
+  value: String,
+  options: List<Pair<String, String>>,
+  onSelected: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  var expanded by remember { mutableStateOf(false) }
+  val selectedLabel = options.firstOrNull { it.first == value }?.second ?: value.ifBlank { "Kies…" }
+  Box(modifier) {
+    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+          Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          Text(selectedLabel, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        }
+        Text(if (expanded) "⌃" else "⌄", color = MaterialTheme.colorScheme.primary)
+      }
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+      options.forEach { (key, optionLabel) ->
+        DropdownMenuItem(
+          text = { Text(optionLabel) },
+          onClick = { expanded = false; onSelected(key) },
+        )
+      }
+    }
+  }
+}
+
+@Composable private fun BooleanDropdown(label: String, value: Boolean, onSelected: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+  ChoiceDropdown(label, value.toString(), yesNoOptions, { onSelected(it == "true") }, modifier)
+}
+
+@Composable private fun AccordionSection(
+  title: String,
+  subtitle: String? = null,
+  expanded: Boolean,
+  onToggle: () -> Unit,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  Card(
+    shape = RoundedCornerShape(14.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+  ) {
+    Column {
+      Row(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Column(Modifier.weight(1f)) {
+          Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+          subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Text(if (expanded) "⌃" else "⌄", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+      }
+      if (expanded) Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp), content = content)
+    }
+  }
+}
+
+@Composable private fun StatusChip(status: String) {
+  val (background, foreground) = when (status) {
+    "AVAILABLE", "READY" -> MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+    "RESERVED", "SALE_PENDING" -> Color(0xFFFFEBC9) to Color(0xFF875000)
+    "SOLD", "ARCHIVED" -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+    "WORKSHOP" -> Color(0xFFE6EEF9) to Color(0xFF275A91)
+    else -> Color(0xFFFFF0D3) to Color(0xFF875000)
+  }
+  Box(Modifier.background(background, RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+    Text(statusLabel(status), style = MaterialTheme.typography.labelMedium, color = foreground)
+  }
+}
+
+private fun statusLabel(status: String): String = bikeStatusOptions.firstOrNull { it.first == status }?.second ?: status.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase(Locale("nl", "NL")) }
+
+@Composable private fun ModernBikeCard(bike: JSONObject, onClick: () -> Unit) {
+  val title = bike.optString("title").ifBlank {
+    listOf(bike.optString("brand"), bike.optString("model")).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "Fiets zonder titel" }
+  }
+  val brand = listOf(bike.optString("brand"), bike.optString("model"), bike.optString("variant"))
+    .filter { it.isNotBlank() }.joinToString(" · ")
+  val initials = listOf(bike.optString("brand"), bike.optString("model")).filter { it.isNotBlank() }
+    .joinToString(" ").split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercase() }.ifBlank { "DF" }
+  Card(
+    onClick = onClick,
+    shape = RoundedCornerShape(16.dp),
+    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+  ) {
+    Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+      Box(Modifier.size(58.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+        Text(initials, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+      }
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+          Text(bike.optString("inventoryCode").ifBlank { "Zonder nummer" }, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          StatusChip(bike.optString("status"))
+        }
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 2)
+        if (brand.isNotBlank()) Text(brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+          Text(euro(bike.optInt("priceCents")), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+          Text("Dossier openen  ›", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+      }
+    }
+  }
+}
+
+private data class IntakeDraft(
+  val frameSerialPresent: Boolean = false,
+  val keysPresent: Boolean = false,
+  val chargerPresent: Boolean = false,
+  val batteryPresent: Boolean = false,
+  val defectsAssessed: Boolean = false,
+  val knownDefects: String = "",
+  val theftCheckCompleted: Boolean = false,
+  val theftCheckDate: String = "",
+  val theftCheckResult: String = "",
+) {
+  companion object {
+    fun from(json: JSONObject?): IntakeDraft = IntakeDraft(
+      frameSerialPresent = json?.optBoolean("frameSerialPresent", false) ?: false,
+      keysPresent = json?.optBoolean("keysPresent", false) ?: false,
+      chargerPresent = json?.optBoolean("chargerPresent", false) ?: false,
+      batteryPresent = json?.optBoolean("batteryPresent", false) ?: false,
+      defectsAssessed = json?.optBoolean("defectsAssessed", false) ?: false,
+      knownDefects = json?.optString("knownDefects").orEmpty(),
+      theftCheckCompleted = json?.optBoolean("theftCheckCompleted", false) ?: false,
+      theftCheckDate = json?.optString("theftCheckDate").orEmpty(),
+      theftCheckResult = json?.optString("theftCheckResult").orEmpty(),
+    )
+  }
+
+  fun toJson(): JSONObject = JSONObject()
+    .put("frameSerialPresent", frameSerialPresent)
+    .put("keysPresent", keysPresent)
+    .put("chargerPresent", chargerPresent)
+    .put("batteryPresent", batteryPresent)
+    .put("defectsAssessed", defectsAssessed)
+    .put("knownDefects", knownDefects)
+    .put("theftCheckCompleted", theftCheckCompleted)
+    .put("theftCheckDate", theftCheckDate)
+    .put("theftCheckResult", theftCheckResult)
+}
+
+@Composable private fun IntakeEditor(values: IntakeDraft, onChange: (IntakeDraft) -> Unit) {
+  Text("Beoordeel elk punt. De server bepaalt daarna of de fiets naar WORKSHOP kan.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  BooleanDropdown("Framenummer aanwezig", values.frameSerialPresent, onSelected = { onChange(values.copy(frameSerialPresent = it)) })
+  BooleanDropdown("Sleutels aanwezig", values.keysPresent, onSelected = { onChange(values.copy(keysPresent = it)) })
+  BooleanDropdown("Lader aanwezig", values.chargerPresent, onSelected = { onChange(values.copy(chargerPresent = it)) })
+  BooleanDropdown("Accu aanwezig", values.batteryPresent, onSelected = { onChange(values.copy(batteryPresent = it)) })
+  BooleanDropdown("Bekende gebreken beoordeeld", values.defectsAssessed, onSelected = { onChange(values.copy(defectsAssessed = it)) })
+  OutlinedTextField(values.knownDefects, { onChange(values.copy(knownDefects = it)) }, label = { Text("Bekende gebreken") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+  BooleanDropdown("Diefstalcontrole uitgevoerd", values.theftCheckCompleted, onSelected = { onChange(values.copy(theftCheckCompleted = it)) })
+  OutlinedTextField(values.theftCheckDate, { onChange(values.copy(theftCheckDate = it)) }, label = { Text("Datum diefstalcontrole (JJJJ-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+  OutlinedTextField(values.theftCheckResult, { onChange(values.copy(theftCheckResult = it)) }, label = { Text("Resultaat diefstalcontrole") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+}
+
+private fun serviceTasks(data: JSONObject?): List<JSONObject> {
+  val array = data?.optJSONArray("serviceTasks") ?: return emptyList()
+  return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+}
+
+@Composable private fun InspectionChecklistEditor(tasks: List<JSONObject>, busy: Boolean, onChange: (String, String) -> Unit) {
+  Text("Werk elk inspectiepunt af. Een keuze wordt direct server-side opgeslagen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    inspectionChecklist.forEach { (key, label) ->
+      val task = tasks.firstOrNull { it.optString("checklistKey") == key }
+      val result = task?.optString("inspectionResult").orEmpty()
+      ChoiceDropdown(label, result, inspectionOptions, { onChange(key, it) }, Modifier.fillMaxWidth())
+    }
+  }
+  if (busy) CircularProgressIndicator(Modifier.padding(top = 8.dp).size(22.dp), strokeWidth = 2.dp)
+}
+
 @Composable private fun InventoryScreen(api: DemiApi, openBike: (String) -> Unit, back: () -> Unit) {
-  var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf<String?>(null) }; var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+  var busy by remember { mutableStateOf(false) }
+  var error by remember { mutableStateOf<String?>(null) }
+  var rows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+  var query by remember { mutableStateOf("") }
+  var pendingQuery by remember { mutableStateOf("") }
+  var selectedStatus by remember { mutableStateOf("") }
   val scope = rememberCoroutineScope()
-  fun load() { busy = true; error = null; scope.launch { background { api.inventory() }.onSuccess { result -> val list = result.optJSONArray("bikes"); rows = (0 until (list?.length() ?: 0)).map { list!!.getJSONObject(it) } }.onFailure { error = it.message }; busy = false } }
+
+  fun load() {
+    if (busy) return
+    busy = true; error = null
+    scope.launch {
+      background { api.inventory(pendingQuery, selectedStatus) }
+        .onSuccess { result ->
+          val list = result.optJSONArray("bikes")
+          rows = (0 until (list?.length() ?: 0)).mapNotNull { list?.optJSONObject(it) }
+        }
+        .onFailure { error = it.message ?: "Voorraad kon niet worden geladen." }
+        .also { busy = false }
+    }
+  }
   LaunchedEffect(Unit) { load() }
-  Column(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }) {
-    Row { TextButton(onClick = back) { Text("← Terug") }; Text("Voorraad", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(top = 12.dp)) }
-    Text("Trek omlaag om de voorraad te verversen.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error) }; if (busy) CircularProgressIndicator(Modifier.padding(16.dp))
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) { items(rows) { bike -> Card(onClick = { openBike(bike.optString("id")) }) { Column(Modifier.padding(14.dp)) { Text(bike.optString("title")); Text("${bike.optString("inventoryCode")} · ${bike.optString("status")}", color = MaterialTheme.colorScheme.onSurfaceVariant); Text("€ ${(bike.optInt("priceCents") / 100.0)}") } } } }
+
+  LazyColumn(
+    Modifier.fillMaxSize().padding(horizontal = 16.dp).pullToRefresh(busy) { load() },
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+  ) {
+    item {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = back) { Text("← Terug") }
+        Column(Modifier.padding(start = 4.dp)) {
+          Text("Fietsvoorraad", style = MaterialTheme.typography.headlineMedium)
+          Text("Dossiers, status en actuele vraagprijs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+    item {
+      OutlinedTextField(
+        query,
+        { query = it },
+        label = { Text("Zoek op nummer, merk of model") },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+      )
+    }
+    item {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        ChoiceDropdown("Statusfilter", selectedStatus, bikeStatusOptions, { selectedStatus = it }, Modifier.weight(1f))
+        Button(
+          enabled = !busy,
+          onClick = { pendingQuery = query.trim(); load() },
+          modifier = Modifier.height(56.dp),
+        ) { Text("Zoek") }
+      }
+    }
+    item {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        HomeInfoCard("${rows.size}", "fietsen in deze lijst", Modifier.weight(1f))
+        HomeInfoCard("${rows.count { it.optString("status") == "AVAILABLE" }}", "beschikbaar", Modifier.weight(1f))
+      }
+    }
+    error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+    if (busy) item { CircularProgressIndicator(Modifier.padding(vertical = 8.dp).size(24.dp), strokeWidth = 2.dp) }
+    if (!busy && rows.isEmpty() && error == null) item { HomeInfoCard("Geen fietsen gevonden", "Pas je zoekterm of statusfilter aan.") }
+    items(rows, key = { it.optString("id") }) { bike -> ModernBikeCard(bike) { openBike(bike.optString("id")) } }
   }
 }
 
@@ -527,27 +791,208 @@ private fun euro(cents: Int) = "€ ${"%.2f".format(java.util.Locale.US, cents /
 }
 
 @Composable private fun NewBikeScreen(api: DemiApi, back: () -> Unit) {
-  var brand by remember { mutableStateOf("") }; var model by remember { mutableStateOf("") }; var type by remember { mutableStateOf("E-bike") }
-  var colour by remember { mutableStateOf("") }; var frame by remember { mutableStateOf("") }; var cost by remember { mutableStateOf("") }
-  var busy by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }; val scope = rememberCoroutineScope()
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    item { TextButton(onClick = back) { Text("← Terug") } }; item { Text("Nieuwe fiets", style = MaterialTheme.typography.headlineMedium) }
-    item { Text("De server bepaalt inventarisnummer en startstatus INTAKE.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    item { OutlinedTextField(brand, { brand = it }, label = { Text("Merk") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth()) }
-    item { OutlinedTextField(type, { type = it }, label = { Text("Fietstype") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(colour, { colour = it }, label = { Text("Kleur") }, modifier = Modifier.fillMaxWidth()) }
-    item { OutlinedTextField(frame, { frame = it }, label = { Text("Framenummer") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(cost, { cost = it.filter(Char::isDigit) }, label = { Text("Inkoopprijs in centen") }, modifier = Modifier.fillMaxWidth()) }
-    item { Button(enabled = !busy, onClick = { val cents = cost.toIntOrNull(); if (cents == null) { message = "Vul de inkoopprijs in gehele centen in."; return@Button }; busy = true; scope.launch { background { api.createBike(JSONObject().put("brand", brand).put("model", model).put("bikeType", type).put("colour", colour).put("frameSerialRef", frame).put("acquisitionCostCents", cents).put("acquisitionDate", java.time.LocalDate.now().toString()).put("isElectric", true)) }.onSuccess { message = "Fiets aangemaakt: ${it.optString("inventoryCode")}" }.onFailure { message = it.message }; busy = false } }, modifier = Modifier.fillMaxWidth()) { Text("Intake aanmaken") } }
-    item { message?.let { Text(it, color = if (it.startsWith("Fiets")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
+  var brand by remember { mutableStateOf("") }
+  var model by remember { mutableStateOf("") }
+  var type by remember { mutableStateOf("E-bike") }
+  var isElectric by remember { mutableStateOf(true) }
+  var colour by remember { mutableStateOf("") }
+  var frame by remember { mutableStateOf("") }
+  var cost by remember { mutableStateOf("") }
+  var acquisitionSource by remember { mutableStateOf("") }
+  var intake by remember { mutableStateOf(IntakeDraft()) }
+  var basicsOpen by remember { mutableStateOf(true) }
+  var purchaseOpen by remember { mutableStateOf(true) }
+  var intakeOpen by remember { mutableStateOf(true) }
+  var busy by remember { mutableStateOf(false) }
+  var message by remember { mutableStateOf<String?>(null) }
+  val scope = rememberCoroutineScope()
+
+  fun create() {
+    val cents = cost.toIntOrNull()
+    if (brand.isBlank() || model.isBlank() || colour.isBlank() || frame.isBlank() || acquisitionSource.isBlank()) {
+      message = "Vul merk, model, kleur, framenummer en inkoopbron in."; return
+    }
+    if (cents == null) { message = "Vul de inkoopprijs in gehele centen in."; return }
+    busy = true; message = null
+    scope.launch {
+      background {
+        val created = api.createBike(
+          JSONObject()
+            .put("brand", brand.trim()).put("model", model.trim()).put("bikeType", type)
+            .put("isElectric", isElectric).put("colour", colour.trim()).put("frameSerialRef", frame.trim())
+            .put("acquisitionSource", acquisitionSource.trim()).put("acquisitionCostCents", cents)
+            .put("acquisitionDate", LocalDate.now().toString()),
+        )
+        api.saveIntake(created.getString("id"), intake.toJson())
+        created
+      }.onSuccess { created -> message = "Fiets ${created.optString("inventoryCode")} aangemaakt. De intake staat opgeslagen." }
+        .onFailure { message = it.message ?: "Intake kon niet worden aangemaakt." }
+        .also { busy = false }
+    }
+  }
+
+  LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
+    item {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = back) { Text("← Terug") }
+        Column(Modifier.padding(start = 4.dp)) {
+          Text("Nieuwe fiets innemen", style = MaterialTheme.typography.headlineMedium)
+          Text("Vaste intake · startstatus INTAKE", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+    item {
+      AccordionSection("Basisgegevens", "Identiteit en elektrische uitvoering", basicsOpen, { basicsOpen = !basicsOpen }) {
+        OutlinedTextField(brand, { brand = it }, label = { Text("Merk") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        ChoiceDropdown("Fietstype", type, bikeTypeOptions, { type = it }, Modifier.fillMaxWidth())
+        BooleanDropdown("Elektrisch", isElectric, onSelected = { isElectric = it })
+        OutlinedTextField(colour, { colour = it }, label = { Text("Kleur") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(frame, { frame = it }, label = { Text("Framenummer") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+      }
+    }
+    item {
+      AccordionSection("Inkoop", "Herkomst en kostprijs", purchaseOpen, { purchaseOpen = !purchaseOpen }) {
+        OutlinedTextField(acquisitionSource, { acquisitionSource = it }, label = { Text("Inkoopbron") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(cost, { cost = it.filter(Char::isDigit) }, label = { Text("Inkoopprijs in centen") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        Text("Inkoopdatum: ${LocalDate.now()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+    }
+    item {
+      AccordionSection("Intakecheck", "Aanwezigheid, gebreken en diefstalcontrole", intakeOpen, { intakeOpen = !intakeOpen }) {
+        IntakeEditor(intake) { intake = it }
+      }
+    }
+    item {
+      Button(enabled = !busy, onClick = ::create, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+        if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else Text("Intake aanmaken")
+      }
+    }
+    message?.let { item { Text(it, color = if (it.startsWith("Fiets")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
   }
 }
 
 @Composable private fun WorkshopScreen(api: DemiApi, back: () -> Unit) {
-  var bikeId by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var message by remember { mutableStateOf<String?>(null) }; var busy by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
-  Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    TextButton(onClick = back) { Text("← Terug") }; Text("Werkplaats", style = MaterialTheme.typography.headlineMedium)
-    OutlinedTextField(bikeId, { bikeId = it }, label = { Text("Fiets-id") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(description, { description = it }, label = { Text("Werkzaamheid") }, modifier = Modifier.fillMaxWidth())
-    Button(enabled = !busy && bikeId.isNotBlank() && description.isNotBlank(), onClick = { busy = true; scope.launch { background { api.workshop(bikeId, JSONObject().put("description", description)) }.onSuccess { message = "Werkplaatsregel toegevoegd." }.onFailure { message = it.message }; busy = false } }) { Text("Werkplaatsregel toevoegen") }
-    message?.let { Text(it, color = if (it.startsWith("Werk")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) }
+  var bikes by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+  var bikeId by remember { mutableStateOf("") }
+  var bike by remember { mutableStateOf<JSONObject?>(null) }
+  var message by remember { mutableStateOf<String?>(null) }
+  var busy by remember { mutableStateOf(false) }
+  var checklistOpen by remember { mutableStateOf(true) }
+  var taskOpen by remember { mutableStateOf(false) }
+  var description by remember { mutableStateOf("") }
+  var partName by remember { mutableStateOf("") }
+  var partCost by remember { mutableStateOf("") }
+  var labourMinutes by remember { mutableStateOf("") }
+  var internalNotes by remember { mutableStateOf("") }
+  val scope = rememberCoroutineScope()
+
+  fun loadBikes() {
+    busy = true
+    scope.launch {
+      background { api.inventory() }
+        .onSuccess { json ->
+          val list = json.optJSONArray("bikes")
+          bikes = (0 until (list?.length() ?: 0)).mapNotNull { list?.optJSONObject(it) }
+          if (bikeId.isBlank()) bikeId = bikes.firstOrNull()?.optString("id").orEmpty()
+        }
+        .onFailure { message = it.message ?: "Fietsen konden niet worden geladen." }
+        .also { busy = false }
+    }
+  }
+
+  fun loadBike(id: String) {
+    if (id.isBlank()) { bike = null; return }
+    busy = true
+    scope.launch {
+      background { api.bike(id) }
+        .onSuccess { bike = it.optJSONObject("bike") }
+        .onFailure { message = it.message ?: "Fietsdossier kon niet worden geladen." }
+        .also { busy = false }
+    }
+  }
+
+  fun saveChecklist(key: String, result: String) {
+    if (bikeId.isBlank() || busy) return
+    busy = true; message = null
+    scope.launch {
+      background {
+        api.workshop(bikeId, JSONObject().put("checklistKey", key).put("inspectionResult", if (result.isBlank()) JSONObject.NULL else result).put("completed", result.isNotBlank()))
+      }.onSuccess { message = "Inspectie opgeslagen."; loadBike(bikeId) }
+        .onFailure { message = it.message ?: "Inspectie kon niet worden opgeslagen." }
+        .also { busy = false }
+    }
+  }
+
+  fun saveTask() {
+    if (bikeId.isBlank() || description.isBlank() || busy) return
+    val partCents = partCost.toIntOrNull()
+    val minutes = labourMinutes.toIntOrNull()
+    if (partCost.isNotBlank() && partCents == null) { message = "Onderdeelprijs moet in gehele centen worden ingevuld."; return }
+    if (labourMinutes.isNotBlank() && minutes == null) { message = "Arbeidstijd moet in gehele minuten worden ingevuld."; return }
+    busy = true; message = null
+    scope.launch {
+      background {
+        val payload = JSONObject().put("description", description.trim())
+          .put("partName", partName.trim()).put("internalNotes", internalNotes.trim())
+        if (partCents != null) payload.put("partCostCents", partCents)
+        if (minutes != null) payload.put("labourMinutes", minutes)
+        api.workshop(bikeId, payload)
+      }.onSuccess { message = "Werkplaatsregel toegevoegd."; description = ""; partName = ""; partCost = ""; labourMinutes = ""; internalNotes = ""; loadBike(bikeId) }
+        .onFailure { message = it.message ?: "Werkplaatsregel kon niet worden opgeslagen." }
+        .also { busy = false }
+    }
+  }
+
+  LaunchedEffect(Unit) { loadBikes() }
+  LaunchedEffect(bikeId) { if (bikeId.isNotBlank()) loadBike(bikeId) }
+
+  LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp).pullToRefresh(busy) { loadBikes() }, verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
+    item {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = back) { Text("← Terug") }
+        Column(Modifier.padding(start = 4.dp)) {
+          Text("Werkplaats", style = MaterialTheme.typography.headlineMedium)
+          Text("Inspectie en ServiceTasks per fiets", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+    item {
+      Box {
+        ChoiceDropdown(
+          "Fietsdossier",
+          bikeId,
+          bikes.map { it.optString("id") to "${it.optString("inventoryCode")} · ${it.optString("title").ifBlank { "Fiets" }}" },
+          { bikeId = it },
+          Modifier.fillMaxWidth(),
+        )
+      }
+    }
+    bike?.let { selectedBike ->
+      val tasks = serviceTasks(selectedBike)
+      val completed = tasks.count { it.optString("inspectionResult").isNotBlank() }
+      item { ModernBikeCard(selectedBike) { } }
+      item {
+        AccordionSection("Inspectiechecklist", "$completed van ${inspectionChecklist.size} punten beoordeeld", checklistOpen, { checklistOpen = !checklistOpen }) {
+          InspectionChecklistEditor(tasks, busy, ::saveChecklist)
+        }
+      }
+      item {
+        AccordionSection("Werkzaamheden", "Onderdelen, arbeid en interne notities", taskOpen, { taskOpen = !taskOpen }) {
+          OutlinedTextField(description, { description = it }, label = { Text("Werkzaamheid") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+          OutlinedTextField(partName, { partName = it }, label = { Text("Onderdeel (optioneel)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(partCost, { partCost = it.filter(Char::isDigit) }, label = { Text("Onderdeelprijs ct") }, modifier = Modifier.weight(1f), singleLine = true)
+            OutlinedTextField(labourMinutes, { labourMinutes = it.filter(Char::isDigit) }, label = { Text("Arbeid min.") }, modifier = Modifier.weight(1f), singleLine = true)
+          }
+          OutlinedTextField(internalNotes, { internalNotes = it }, label = { Text("Interne opmerkingen") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+          Button(enabled = !busy && description.isNotBlank(), onClick = ::saveTask, modifier = Modifier.fillMaxWidth()) { Text("Werkzaamheid toevoegen") }
+        }
+      }
+    }
+    if (bike == null && !busy) item { HomeInfoCard("Kies een fiets", "Selecteer een dossier om de checklist en werkzaamheden te openen.") }
+    if (busy) item { CircularProgressIndicator(Modifier.padding(vertical = 8.dp).size(24.dp), strokeWidth = 2.dp) }
+    message?.let { item { Text(it, color = if (it.contains("opgeslagen") || it.contains("toegevoegd")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } }
   }
 }
 
@@ -561,23 +1006,162 @@ private fun euro(cents: Int) = "€ ${"%.2f".format(java.util.Locale.US, cents /
 }
 
 @Composable private fun BikeDossierScreen(api: DemiApi, bikeId: String, back: () -> Unit) {
-  val context = LocalContext.current; val scope = rememberCoroutineScope()
-  var busy by remember { mutableStateOf(false) }; var error by remember { mutableStateOf<String?>(null) }; var notice by remember { mutableStateOf<String?>(null) }
-  var data by remember { mutableStateOf<JSONObject?>(null) }; var title by remember { mutableStateOf("") }; var brand by remember { mutableStateOf("") }; var model by remember { mutableStateOf("") }; var price by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var storage by remember { mutableStateOf("") }
-  fun load() { busy = true; error = null; scope.launch { background { api.bike(bikeId) }.onSuccess { json -> val bike = json.getJSONObject("bike"); data = bike; title = bike.optString("title"); brand = bike.optString("brand"); model = bike.optString("model"); price = bike.optInt("priceCents").toString(); description = bike.optString("description"); storage = bike.optString("storageLocation") }.onFailure { error = it.message ?: "Fietsdossier kon niet worden geladen." }; busy = false } }
-  LaunchedEffect(bikeId) { load() }
-  fun upload(uri: android.net.Uri) { busy = true; error = null; scope.launch { background { val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Foto kon niet worden gelezen."); api.uploadBikeImage(bikeId, "bike-${System.currentTimeMillis()}.jpg", bytes, context.contentResolver.getType(uri) ?: "image/jpeg") }.onSuccess { notice = "Foto toegevoegd. Kies hieronder eventueel omslag of interne zichtbaarheid."; load() }.onFailure { error = it.message ?: "Foto uploaden mislukt." }; busy = false } }
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  var busy by remember { mutableStateOf(false) }
+  var error by remember { mutableStateOf<String?>(null) }
+  var notice by remember { mutableStateOf<String?>(null) }
+  var data by remember { mutableStateOf<JSONObject?>(null) }
+  var readiness by remember { mutableStateOf<JSONObject?>(null) }
+  var title by remember { mutableStateOf("") }
+  var brand by remember { mutableStateOf("") }
+  var model by remember { mutableStateOf("") }
+  var price by remember { mutableStateOf("") }
+  var description by remember { mutableStateOf("") }
+  var storage by remember { mutableStateOf("") }
+  var intake by remember { mutableStateOf(IntakeDraft()) }
+  var basicsOpen by remember { mutableStateOf(true) }
+  var intakeOpen by remember { mutableStateOf(false) }
+  var checklistOpen by remember { mutableStateOf(false) }
+  var photosOpen by remember { mutableStateOf(false) }
+
+  fun load() {
+    if (busy) return
+    busy = true; error = null
+    scope.launch {
+      background { api.bike(bikeId) }
+        .onSuccess { json ->
+          val loaded = json.getJSONObject("bike")
+          data = loaded
+          readiness = json.optJSONObject("readiness")
+          intake = IntakeDraft.from(loaded.optJSONObject("intakeRecord"))
+          title = loaded.optString("title"); brand = loaded.optString("brand"); model = loaded.optString("model")
+          price = loaded.optInt("priceCents").toString(); description = loaded.optString("description"); storage = loaded.optString("storageLocation")
+        }
+        .onFailure { error = it.message ?: "Fietsdossier kon niet worden geladen." }
+        .also { busy = false }
+    }
+  }
+
+  fun saveDossier() {
+    val cents = price.toIntOrNull()
+    if (cents == null || title.isBlank() || brand.isBlank() || model.isBlank()) { error = "Titel, merk, model en vraagprijs zijn verplicht."; return }
+    busy = true; error = null
+    scope.launch {
+      background { api.updateBike(bikeId, JSONObject().put("title", title.trim()).put("brand", brand.trim()).put("model", model.trim()).put("priceCents", cents).put("storageLocation", storage.trim()).put("description", description.trim())) }
+        .onSuccess { notice = "Fietsdossier opgeslagen."; load() }
+        .onFailure { error = it.message ?: "Fietsdossier kon niet worden opgeslagen." }
+        .also { busy = false }
+    }
+  }
+
+  fun saveIntake() {
+    busy = true; error = null
+    scope.launch {
+      background { api.saveIntake(bikeId, intake.toJson()) }
+        .onSuccess { notice = "Intakecheck opgeslagen."; load() }
+        .onFailure { error = it.message ?: "Intake kon niet worden opgeslagen." }
+        .also { busy = false }
+    }
+  }
+
+  fun saveChecklist(key: String, result: String) {
+    if (busy) return
+    busy = true; error = null
+    scope.launch {
+      background { api.workshop(bikeId, JSONObject().put("checklistKey", key).put("inspectionResult", if (result.isBlank()) JSONObject.NULL else result).put("completed", result.isNotBlank())) }
+        .onSuccess { notice = "Inspectie opgeslagen."; load() }
+        .onFailure { error = it.message ?: "Inspectie kon niet worden opgeslagen." }
+        .also { busy = false }
+    }
+  }
+
+  fun upload(uri: android.net.Uri) {
+    busy = true; error = null
+    scope.launch {
+      background {
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Foto kon niet worden gelezen.")
+        api.uploadBikeImage(bikeId, "bike-${System.currentTimeMillis()}.jpg", bytes, context.contentResolver.getType(uri) ?: "image/jpeg")
+      }.onSuccess { notice = "Foto toegevoegd."; load() }
+        .onFailure { error = it.message ?: "Foto uploaden mislukt." }
+        .also { busy = false }
+    }
+  }
+
   var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
   val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved -> if (saved) cameraUri?.let(::upload) else error = "Foto-opname is geannuleerd." }
   val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) upload(uri) }
-  LazyColumn(Modifier.fillMaxSize().padding(20.dp).pullToRefresh(busy) { load() }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    item { TextButton(onClick = back) { Text("← Voorraad") } }; item { Text(data?.optString("inventoryCode") ?: "Fietsdossier", style = MaterialTheme.typography.headlineMedium) }
-    item { Text("Volledige gegevens blijven server-gevalideerd. Bewerk hier de dagelijkse dossier- en advertentievelden; intake en werkplaats blijven als aparte veilige stappen beschikbaar.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    if (busy) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }; notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
-    item { OutlinedTextField(title, { title = it }, label = { Text("Titel") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(brand, { brand = it }, label = { Text("Merk") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Vraagprijs in centen") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(storage, { storage = it }, label = { Text("Opslaglocatie") }, modifier = Modifier.fillMaxWidth()) }; item { OutlinedTextField(description, { description = it }, label = { Text("Advertentieomschrijving") }, modifier = Modifier.fillMaxWidth(), minLines = 4) }
-    item { Button(enabled = !busy, onClick = { val cents = price.toIntOrNull(); if (cents == null || title.isBlank() || brand.isBlank() || model.isBlank()) { error = "Titel, merk, model en vraagprijs zijn verplicht."; return@Button }; busy = true; scope.launch { background { api.updateBike(bikeId, JSONObject().put("title", title).put("brand", brand).put("model", model).put("priceCents", cents).put("storageLocation", storage).put("description", description)) }.onSuccess { notice = "Fietsdossier opgeslagen."; load() }.onFailure { error = it.message }; busy = false } }, modifier = Modifier.fillMaxWidth()) { Text("Dossier opslaan") } }
-    item { Text("Foto-assistent", style = MaterialTheme.typography.titleLarge) }; item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(enabled = !busy, onClick = { val file = File(context.cacheDir, "bike-${UUID.randomUUID()}.jpg"); cameraUri = FileProvider.getUriForFile(context, "${context.packageName}.files", file); camera.launch(cameraUri!!) }) { Text("Foto nemen") }; TextButton(enabled = !busy, onClick = { gallery.launch("image/*") }) { Text("Galerij") } } }
-    val images = data?.optJSONArray("images"); if (images != null) items((0 until images.length()).map { images.getJSONObject(it) }) { image -> Card { Column(Modifier.padding(12.dp)) { Text(if (image.optBoolean("isCover")) "Omslagfoto" else "Foto"); Text(if (image.optBoolean("isInternal")) "Intern" else "Publiek", color = MaterialTheme.colorScheme.onSurfaceVariant); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { if (!image.optBoolean("isInternal") && !image.optBoolean("isCover")) TextButton(onClick = { scope.launch { background { api.updateBikeImage(bikeId, image.getString("id"), "cover") }.onSuccess { load() }.onFailure { error = it.message } } }) { Text("Maak omslag") }; TextButton(onClick = { scope.launch { background { api.updateBikeImage(bikeId, image.getString("id"), "visibility", !image.optBoolean("isInternal")) }.onSuccess { load() }.onFailure { error = it.message } } }) { Text(if (image.optBoolean("isInternal")) "Maak publiek" else "Maak intern") } } } } }
+  LaunchedEffect(bikeId) { load() }
+
+  LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp).pullToRefresh(busy) { load() }, verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)) {
+    item {
+      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = back) { Text("← Voorraad") }
+        Column(Modifier.padding(start = 4.dp)) {
+          Text(data?.optString("inventoryCode") ?: "Fietsdossier", style = MaterialTheme.typography.headlineMedium)
+          Text("Eén centraal dossier voor verkoop, intake en werkplaats", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+    data?.let { current ->
+      item { ModernBikeCard(current) { } }
+      val intakeReadiness = readiness?.optJSONObject("intake")
+      val workshopReadiness = readiness?.optJSONObject("workshop")
+      item {
+        HomeInfoCard(
+          "Dossierstatus",
+          "Intake: ${if (intakeReadiness?.optBoolean("ready") == true) "compleet" else "${intakeReadiness?.optJSONArray("missing")?.length() ?: "…"} punten open"} · Werkplaats: ${if (workshopReadiness?.optBoolean("ready") == true) "compleet" else "${workshopReadiness?.optJSONArray("missing")?.length() ?: "…"} punten open"}",
+        )
+      }
+      item {
+        AccordionSection("Basisgegevens", "Advertentie, prijs en locatie", basicsOpen, { basicsOpen = !basicsOpen }) {
+          OutlinedTextField(title, { title = it }, label = { Text("Titel") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          OutlinedTextField(brand, { brand = it }, label = { Text("Merk") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          OutlinedTextField(model, { model = it }, label = { Text("Model") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Vraagprijs in centen") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          OutlinedTextField(storage, { storage = it }, label = { Text("Opslaglocatie") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+          OutlinedTextField(description, { description = it }, label = { Text("Advertentieomschrijving") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
+          Button(enabled = !busy, onClick = ::saveDossier, modifier = Modifier.fillMaxWidth()) { Text("Dossier opslaan") }
+        }
+      }
+      item {
+        AccordionSection("Intakecheck", "Aanwezigheid, gebreken en diefstalcontrole", intakeOpen, { intakeOpen = !intakeOpen }) {
+          IntakeEditor(intake) { intake = it }
+          Button(enabled = !busy, onClick = ::saveIntake, modifier = Modifier.fillMaxWidth()) { Text("Intake opslaan") }
+        }
+      }
+      item {
+        AccordionSection("Inspectiechecklist", "Voorrem, accu, motor en alle overige punten", checklistOpen, { checklistOpen = !checklistOpen }) {
+          InspectionChecklistEditor(serviceTasks(current), busy, ::saveChecklist)
+        }
+      }
+      item {
+        AccordionSection("Foto's", "Omslag en interne zichtbaarheid", photosOpen, { photosOpen = !photosOpen }) {
+          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = !busy, onClick = { val file = File(context.cacheDir, "bike-${UUID.randomUUID()}.jpg"); cameraUri = FileProvider.getUriForFile(context, "${context.packageName}.files", file); camera.launch(cameraUri!!) }) { Text("Foto nemen") }
+            TextButton(enabled = !busy, onClick = { gallery.launch("image/*") }) { Text("Galerij") }
+          }
+          val images = current.optJSONArray("images")
+          if (images != null) {
+            (0 until images.length()).mapNotNull { images.optJSONObject(it) }.forEach { image ->
+              Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                  Text(if (image.optBoolean("isCover")) "Omslagfoto" else "Foto", style = MaterialTheme.typography.titleSmall)
+                  Text(if (image.optBoolean("isInternal")) "Intern" else "Publiek", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!image.optBoolean("isInternal") && !image.optBoolean("isCover")) TextButton(onClick = { scope.launch { background { api.updateBikeImage(bikeId, image.getString("id"), "cover") }.onSuccess { load() }.onFailure { error = it.message } } }) { Text("Maak omslag") }
+                    TextButton(onClick = { scope.launch { background { api.updateBikeImage(bikeId, image.getString("id"), "visibility", !image.optBoolean("isInternal")) }.onSuccess { load() }.onFailure { error = it.message } } }) { Text(if (image.optBoolean("isInternal")) "Maak publiek" else "Maak intern") }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    if (busy) item { CircularProgressIndicator(Modifier.padding(vertical = 8.dp).size(24.dp), strokeWidth = 2.dp) }
+    error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+    notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
   }
 }
 

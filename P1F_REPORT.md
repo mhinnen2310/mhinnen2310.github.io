@@ -48,6 +48,20 @@
   route verloren gaat en het scherm compact blijft.
 - De brede menuknop houdt rekening met de Android-navigatie-/gesture-inset en
   valt daardoor niet meer onder de systeemnavigatiebalk.
+- Voorraad gebruikt nu dossierkaarten met fietsnummer, merk/model, prijs en
+  een kleurgecodeerde statuschip, plus zoeken en een server-gevalideerd
+  statusfilter. De oude vlakke/chat-achtige lijst is verwijderd.
+- Nieuwe fiets innemen is opgesplitst in inklapbare **Basisgegevens**-,
+  **Inkoop**- en **Intakecheck**-secties. Aanwezigheid, gebreken en
+  diefstalcontrole worden met duidelijke Ja/Nee-dropdowns vastgelegd en na
+  aanmaken via de bestaande intake-adapter opgeslagen.
+- Werkplaats toont per geselecteerd fietsdossier de volledige checklist met
+  dropdowns voor Goed, Aandacht nodig, Afkeur en Niet van toepassing. Losse
+  werkzaamheden hebben aparte velden voor onderdeelprijs in centen,
+  arbeidstijd in minuten en interne opmerkingen.
+- Het fietsdossier zelf gebruikt dezelfde inklapbare secties voor basisdata,
+  intake, inspectie en foto's; elke wijziging blijft via de bestaande
+  servervalidatie en auditlogica lopen.
 - De begroeting gebruikt de naam uit het server-loginantwoord wanneer die
   beschikbaar is; de naam wordt bij uitloggen samen met tokens gewist.
 - Mobiele inventarisfilters accepteren alleen echte `BikeStatus`-waarden. Een
@@ -91,6 +105,9 @@
   `android.jar`.
 - `:app:assembleDebug` is succesvol uitgevoerd op 31 augustus 2026. De APK is
   daarna met succes op de lokale Pixel 9-emulator geïnstalleerd en gestart.
+- Na de intake-/werkplaats- en voorraad-UI-update is opnieuw
+  `:app:assembleDebug` uitgevoerd en is de nieuwe APK op de Pixel 9-emulator
+  geïnstalleerd.
 - `npm run lint`, `npm run typecheck` en `npm test` zijn succesvol: 20
   testbestanden en 58 tests groen, inclusief de reserverings-ID- en veilige
   mobiele-foutrespons-regressietests.

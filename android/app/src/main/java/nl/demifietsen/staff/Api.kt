@@ -33,7 +33,13 @@ class DemiApi(private val baseUrl: String, private val sessions: SessionStore) {
   fun resolveQr(token: String) = execute(request("/api/mobile/qr/$token"))
   fun bike(id: String) = execute(request("/api/mobile/bikes/$id"))
   fun updateBike(id: String, payload: JSONObject) = execute(request("/api/mobile/bikes/$id", "PATCH", payload))
-  fun inventory() = execute(request("/api/mobile/bikes"))
+  fun inventory(query: String? = null, status: String? = null): JSONObject {
+    val params = buildList {
+      if (!query.isNullOrBlank()) add("q=${android.net.Uri.encode(query.trim())}")
+      if (!status.isNullOrBlank()) add("status=${android.net.Uri.encode(status)}")
+    }.joinToString("&").let { if (it.isBlank()) "" else "?$it" }
+    return execute(request("/api/mobile/bikes$params"))
+  }
   fun dashboard() = execute(request("/api/mobile/dashboard"))
   fun batteries() = execute(request("/api/mobile/batteries"))
   fun createBattery(payload: JSONObject) = execute(request("/api/mobile/batteries", "POST", payload))
