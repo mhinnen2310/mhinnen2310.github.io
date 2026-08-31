@@ -96,11 +96,17 @@ export async function quoteCheckout(cartToken: string | null | undefined, prefer
   const selected = deliveryOptions.find((o) => o.id === defaultMethodId);
   const lines = quote.lines.map((line) => {
     if (line.kind === "UNIQUE_BIKE" && taxConfig.bikeScheme === "MARGIN" && acquisitionByBike.get(line.refId) == null) {
-      return { ...line, available: false, issue: "Voor deze fiets ontbreekt de vastgelegde inkoopprijs voor de margeregeling." };
+      return {
+        ...line,
+        available: false,
+        issue: line.issue ?? "Voor deze fiets ontbreekt de vastgelegde inkoopprijs voor de margeregeling.",
+      };
     }
     return line;
   });
-  const basisIssues = lines.filter((line) => line.issue === "Voor deze fiets ontbreekt de vastgelegde inkoopprijs voor de margeregeling.").map((line) => `${line.name}: ${line.issue}`);
+  const basisIssues = quote.lines
+    .filter((line) => line.kind === "UNIQUE_BIKE" && taxConfig.bikeScheme === "MARGIN" && acquisitionByBike.get(line.refId) == null)
+    .map((line) => `${line.name}: Voor deze fiets ontbreekt de vastgelegde inkoopprijs voor de margeregeling.`);
   const taxTotalCents = quote.lines.reduce((sum, line) => {
     const tax = lineTax(line.lineTotalCents, taxRateForLine(taxConfig, line.kind), taxConfig.basis, {
       scheme: line.kind === "UNIQUE_BIKE" ? taxConfig.bikeScheme : "STANDARD",
