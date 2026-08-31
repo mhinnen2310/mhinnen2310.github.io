@@ -66,6 +66,11 @@
   beschikbaar is; de naam wordt bij uitloggen samen met tokens gewist.
 - Mobiele inventarisfilters accepteren alleen echte `BikeStatus`-waarden. Een
   onbekende status geeft een veilige 400 in plaats van een Prisma-fout.
+- De voorraadweergave heeft aparte tabs **In voorraad** en **Verkocht**. De
+  actieve tab sluit `SOLD` en `ARCHIVED` server-side uit; de verkochte tab
+  vraagt uitsluitend die statussen op. Daardoor blijven verkochte fietsen ook
+  bij grotere voorraden uit de actieve lijst en is de scheiding niet alleen
+  cosmetisch.
 - Vrijgeven vanuit web- of mobiele reserveringsdetails is gekoppeld aan het
   exacte reserverings-ID. Daardoor kan een gelijktijdige of oudere actieve regel
   niet per ongeluk worden vrijgegeven.

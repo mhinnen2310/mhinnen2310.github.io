@@ -468,6 +468,9 @@ private val bikeStatusOptions = listOf(
   "SALE_PENDING" to "Verkoop wordt afgerond", "SOLD" to "Verkocht", "ARCHIVED" to "Gearchiveerd",
 )
 
+private val activeStatusOptions = bikeStatusOptions.filter { it.first !in setOf("SOLD", "ARCHIVED") }
+private val soldStatusOptions = listOf("" to "Alle verkochte fietsen", "SOLD" to "Verkocht", "ARCHIVED" to "Gearchiveerd")
+
 private val bikeTypeOptions = listOf(
   "E-bike" to "E-bike", "Stadsfiets" to "Stadsfiets", "Hybride" to "Hybride",
   "Mountainbike" to "Mountainbike", "Racefiets" to "Racefiets", "Bakfiets" to "Bakfiets", "Overig" to "Overig",
@@ -599,6 +602,18 @@ private fun statusLabel(status: String): String = bikeStatusOptions.firstOrNull 
   }
 }
 
+@Composable private fun InventoryTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+  Button(
+    onClick = onClick,
+    modifier = modifier.height(46.dp),
+    shape = RoundedCornerShape(12.dp),
+    colors = ButtonDefaults.buttonColors(
+      containerColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+      contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+    ),
+  ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+}
+
 private data class IntakeDraft(
   val frameSerialPresent: Boolean = false,
   val keysPresent: Boolean = false,
@@ -673,13 +688,14 @@ private fun serviceTasks(data: JSONObject?): List<JSONObject> {
   var query by remember { mutableStateOf("") }
   var pendingQuery by remember { mutableStateOf("") }
   var selectedStatus by remember { mutableStateOf("") }
+  var inventoryView by remember { mutableStateOf("active") }
   val scope = rememberCoroutineScope()
 
-  fun load() {
+  fun load(view: String = inventoryView, statusFilter: String = selectedStatus, search: String = pendingQuery) {
     if (busy) return
     busy = true; error = null
     scope.launch {
-      background { api.inventory(pendingQuery, selectedStatus) }
+      background { api.inventory(search, statusFilter, view) }
         .onSuccess { result ->
           val list = result.optJSONArray("bikes")
           rows = (0 until (list?.length() ?: 0)).mapNotNull { list?.optJSONObject(it) }
@@ -715,18 +731,28 @@ private fun serviceTasks(data: JSONObject?): List<JSONObject> {
     }
     item {
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        ChoiceDropdown("Statusfilter", selectedStatus, bikeStatusOptions, { selectedStatus = it }, Modifier.weight(1f))
+        InventoryTab("In voorraad", inventoryView == "active", { inventoryView = "active"; selectedStatus = ""; pendingQuery = query.trim(); load("active", "", query.trim()) }, Modifier.weight(1f))
+        InventoryTab("Verkocht", inventoryView == "sold", { inventoryView = "sold"; selectedStatus = ""; pendingQuery = query.trim(); load("sold", "", query.trim()) }, Modifier.weight(1f))
+      }
+    }
+    item {
+      Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        ChoiceDropdown("Statusfilter", selectedStatus, if (inventoryView == "sold") soldStatusOptions else activeStatusOptions, { selectedStatus = it }, Modifier.weight(1f))
         Button(
           enabled = !busy,
-          onClick = { pendingQuery = query.trim(); load() },
+          onClick = { pendingQuery = query.trim(); load(inventoryView, selectedStatus, query.trim()) },
           modifier = Modifier.height(56.dp),
         ) { Text("Zoek") }
       }
     }
     item {
       Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        HomeInfoCard("${rows.size}", "fietsen in deze lijst", Modifier.weight(1f))
-        HomeInfoCard("${rows.count { it.optString("status") == "AVAILABLE" }}", "beschikbaar", Modifier.weight(1f))
+        HomeInfoCard("${rows.size}", if (inventoryView == "sold") "verkocht in deze lijst" else "fietsen in voorraad", Modifier.weight(1f))
+        HomeInfoCard(
+          "${if (inventoryView == "sold") rows.count { it.optString("status") == "ARCHIVED" } else rows.count { it.optString("status") == "AVAILABLE" }}",
+          if (inventoryView == "sold") "in archief" else "beschikbaar",
+          Modifier.weight(1f),
+        )
       }
     }
     error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }

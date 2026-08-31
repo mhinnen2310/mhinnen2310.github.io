@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { BikeStatus } from "@prisma/client";
 import { BikeAdminError, createBikeDossier } from "@/lib/bike-admin";
 import { BikeInputError } from "@/lib/bike-input";
 import { BIKE_STATUSES } from "@/lib/bikes";
@@ -18,11 +19,23 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim() ?? "";
   const status = searchParams.get("status")?.trim() ?? "";
+  const view = searchParams.get("view")?.trim() || "active";
+  if (view !== "active" && view !== "sold" && view !== "all") {
+    return NextResponse.json({ error: "Ongeldige voorraadweergave." }, { status: 400, headers: { "cache-control": "no-store" } });
+  }
   const statusFilter = status ? BIKE_STATUSES.find((candidate) => candidate === status) : undefined;
   if (status && !statusFilter) return NextResponse.json({ error: "Ongeldige fietsstatus." }, { status: 400, headers: { "cache-control": "no-store" } });
+  const soldStatuses: BikeStatus[] = ["SOLD", "ARCHIVED"];
+  const activeStatuses: BikeStatus[] = BIKE_STATUSES.filter((candidate) => !soldStatuses.includes(candidate));
+  if (statusFilter && view === "active" && !activeStatuses.includes(statusFilter)) {
+    return NextResponse.json({ error: "Deze status hoort niet bij de actieve voorraadweergave." }, { status: 400, headers: { "cache-control": "no-store" } });
+  }
+  if (statusFilter && view === "sold" && !soldStatuses.includes(statusFilter)) {
+    return NextResponse.json({ error: "Deze status hoort niet bij de verkochte voorraadweergave." }, { status: 400, headers: { "cache-control": "no-store" } });
+  }
   const bikes = await prisma.bike.findMany({
     where: {
-      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(statusFilter ? { status: statusFilter } : view === "sold" ? { status: { in: soldStatuses } } : view === "active" ? { status: { in: activeStatuses } } : {}),
       ...(query ? { OR: [
         { inventoryCode: { contains: query, mode: "insensitive" } },
         { brand: { contains: query, mode: "insensitive" } },
