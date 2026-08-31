@@ -46,6 +46,8 @@
 - De losse onderste navigatieknoppen zijn vervangen door één brede knop
   **Menu**. De dropdown bevat alle bestaande schermen en Uitloggen, zodat geen
   route verloren gaat en het scherm compact blijft.
+- De brede menuknop houdt rekening met de Android-navigatie-/gesture-inset en
+  valt daardoor niet meer onder de systeemnavigatiebalk.
 - De begroeting gebruikt de naam uit het server-loginantwoord wanneer die
   beschikbaar is; de naam wordt bij uitloggen samen met tokens gewist.
 - Mobiele inventarisfilters accepteren alleen echte `BikeStatus`-waarden. Een
