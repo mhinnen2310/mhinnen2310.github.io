@@ -25,7 +25,7 @@ export default async function AdminOrdersPage() {
           </tr></thead>
           <tbody className="divide-y divide-line">
             {orders.map((order) => <tr key={order.id}>
-              <td className="px-4 py-3"><p className="font-semibold text-ink">{order.orderNumber}</p><p className="text-xs text-ink-faint">{formatDateTime(order.placedAt)} · {order._count.lines} regels</p></td>
+              <td className="px-4 py-3"><Link href={`/admin/bestellingen/${order.id}`} className="font-semibold text-brand-800 underline">{order.orderNumber}</Link><p className="text-xs text-ink-faint">{formatDateTime(order.placedAt)} · {order._count.lines} regels</p></td>
               <td className="px-4 py-3"><p>{order.customerName}</p><a href={`mailto:${order.customerEmail}`} className="text-xs text-brand-700 underline">{order.customerEmail}</a></td>
               <td className="px-4 py-3">{formatPrice(order.totalCents)}<p className="text-xs text-ink-faint">{order.deliveryMethod ?? "geen levering"}</p></td>
               <td className="px-4 py-3"><span className="rounded-full bg-surface px-2 py-1 text-xs font-semibold">{order.paymentStatus}</span></td>

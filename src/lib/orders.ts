@@ -3,7 +3,7 @@ import { prisma } from "./prisma";
 import { env } from "./env";
 import { addMonths, getWarrantyScopes } from "./warranty";
 import { getPaymentProvider } from "./payments";
-import { ensureInvoicePdf, createIssuedInvoiceInTx, getInvoiceCompanySnapshot, type OrderForInvoice } from "./invoices";
+import { ensureInvoicePdf, createIssuedInvoiceInTx, getInvoiceCompanySnapshot, issueCreditNote, type OrderForInvoice } from "./invoices";
 import { uniqueBikeLinesForOrder, OrderLifecycleIntegrityError } from "./order-lifecycle";
 import { roleAtLeast, type SessionUser } from "./auth";
 
@@ -708,51 +708,65 @@ export interface RefundResult {
   providerRefunded: boolean;
 }
 
+export type RefundedBikeDestination = "WORKSHOP" | "AVAILABLE" | "ARCHIVED";
+
 export async function refundOrder(
   orderId: string,
   amountCents: number | null,
   reason: string | null,
   actorId: string | null = null,
+  options?: { fullRefundBikeDestination?: RefundedBikeDestination },
 ): Promise<RefundResult> {
   const provider = getPaymentProvider();
   let result: RefundResult = { status: "REFUNDED", providerRefunded: false };
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { lines: true, payments: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: { lines: true, payments: { where: { providerPaymentId: { not: null } }, orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!order) throw new OrderStateError("Bestelling niet gevonden.");
   if (order.paymentStatus !== "PAID" && order.paymentStatus !== "PARTIALLY_REFUNDED") {
     throw new OrderStateError("Alleen betaalde bestellingen kunnen worden teruggestort.");
   }
-  const fullRefund = amountCents == null || amountCents >= order.totalCents;
+  const remainingCents = order.totalCents - order.refundedCents;
+  if (remainingCents <= 0) throw new OrderStateError("Deze bestelling is al volledig terugbetaald.");
+  const refundAmountCents = amountCents ?? remainingCents;
+  if (!Number.isSafeInteger(refundAmountCents) || refundAmountCents <= 0 || refundAmountCents > remainingCents) {
+    throw new OrderStateError("Het terugbetalingsbedrag is ongeldig of hoger dan het resterende bedrag.");
+  }
+  const fullRefund = refundAmountCents === remainingCents;
+  const bikeDestination = options?.fullRefundBikeDestination ?? "AVAILABLE";
   result.status = fullRefund ? "REFUNDED" : "PARTIALLY_REFUNDED";
 
   const payment = order.payments[0];
   if (payment?.providerPaymentId) {
     try {
-      await provider.refund(payment.providerPaymentId, fullRefund ? null : amountCents ?? order.totalCents);
+      await provider.refund(payment.providerPaymentId, refundAmountCents);
       result.providerRefunded = true;
     } catch (error) {
       await prisma.order.update({
         where: { id: order.id },
         data: { internalNotes: appendNote(order.internalNotes, `Provider refund mislukt: ${error instanceof Error ? error.message : String(error)}`) },
       });
+      throw new OrderStateError("De betaalprovider heeft de terugbetaling niet bevestigd; de bestelling is niet gewijzigd.");
     }
   }
 
+  let changed = false;
   await prisma.$transaction(async (tx) => {
     const current = await tx.order.findUnique({ where: { id: order.id }, include: { lines: true } });
     if (!current) return;
     const claimed = await tx.order.updateMany({
-      where: { id: current.id, paymentStatus: { in: ["PAID", "PARTIALLY_REFUNDED"] } },
+      where: { id: current.id, paymentStatus: { in: ["PAID", "PARTIALLY_REFUNDED"] }, refundedCents: order.refundedCents },
       data: {
         paymentStatus: result.status,
+        refundedCents: { increment: refundAmountCents },
         cancelledAt: result.status === "REFUNDED" ? new Date() : current.cancelledAt,
         cancelReason: result.status === "REFUNDED" ? reason ?? current.cancelReason : current.cancelReason,
         internalNotes: appendNote(current.internalNotes, `Terugbetaling: ${result.status} (${reason ?? "geen reden"}) door ${actorId ?? "stelsel"}`),
       },
     });
-    if (claimed.count !== 1) return;
+    if (claimed.count !== 1) throw new OrderStateError("De terugbetalingsstatus wijzigde gelijktijdig; controleer de providerbetaling handmatig.");
+    changed = true;
     if (result.status === "REFUNDED") {
       await releaseOrderResourcesTx(tx, current as OrderWithRelations);
       for (const line of current.lines) {
@@ -760,7 +774,7 @@ export async function refundOrder(
         await tx.bike.updateMany({
           where: { id: line.bikeId, status: "SOLD", soldOrderNumber: current.orderNumber },
           data: {
-            status: "AVAILABLE",
+            status: bikeDestination,
             soldAt: null,
             soldOrderNumber: null,
             warrantyStart: null,
@@ -770,8 +784,17 @@ export async function refundOrder(
         });
       }
     }
-    await auditTx(tx, "order.refunded", "Order", current.id, { status: result.status, reason, amountCents }, null);
+    await auditTx(tx, "order.refunded", "Order", current.id, { status: result.status, reason, amountCents: refundAmountCents, bikeDestination: fullRefund ? bikeDestination : null }, null);
   });
+  if (changed) {
+    await issueCreditNote(order.id, refundAmountCents, reason, actorId).catch(async (error) => {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { internalNotes: appendNote(order.internalNotes, `Creditnota genereren mislukt: ${error instanceof Error ? error.message : String(error)}`) },
+      });
+      console.error("credit note after refund failed", error);
+    });
+  }
   return result;
 }
 

@@ -7,10 +7,12 @@ android { namespace = "nl.demifietsen.staff"; compileSdk = 35
     debug {
       buildConfigField("String", "API_BASE_URL", "\"https://demifietsen-preview.onrender.com\"")
       manifestPlaceholders["usesCleartextTraffic"] = "false"
+      manifestPlaceholders["appLinkHost"] = "demifietsen-preview.onrender.com"
     }
     release {
       buildConfigField("String", "API_BASE_URL", "\"https://demifietsen.nl\"")
       manifestPlaceholders["usesCleartextTraffic"] = "false"
+      manifestPlaceholders["appLinkHost"] = "demifietsen.nl"
     }
   }
   compileOptions {

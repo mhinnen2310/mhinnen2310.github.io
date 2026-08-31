@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { qrPdfPageCount } from "./qr-pdf";
-import { createQrToken, matchesQrSearch, qrDisplayCode } from "./qr-tags";
+import { createQrToken, matchesQrSearch, qrDisplayCode, qrUrl } from "./qr-tags";
 
 describe("QR asset-tag primitives", () => {
   it("uses stable, human-readable unique serial display codes", () => {
@@ -27,5 +27,8 @@ describe("QR asset-tag primitives", () => {
     expect(qrPdfPageCount(30, 15)).toBe(2);
     expect(qrPdfPageCount(100, 15)).toBe(7);
     expect(qrPdfPageCount(100, 10)).toBe(10);
+  });
+  it("builds sticker URLs from the permanent base supplied for the batch", () => {
+    expect(qrUrl("opaque-token", "https://qr.example.nl/")).toBe("https://qr.example.nl/q/opaque-token");
   });
 });

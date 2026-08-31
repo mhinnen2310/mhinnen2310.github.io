@@ -15,7 +15,9 @@ export default async function OverOnsPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Over {settings.companyName}</h1>
+      <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+        Over {settings.companyName}
+      </h1>
 
       <div className="mt-6 space-y-4 text-sm leading-relaxed text-ink-soft">
         {settings.aboutText ? (
@@ -23,25 +25,32 @@ export default async function OverOnsPage() {
         ) : (
           <>
             <p>
-              {settings.companyName} is een lokale fietsenspeciaalzaak met een eenvoudige gedachte: goede
-              tweedehands elektrische fietsen, eerlijk geprijsd en klaar om direct te rijden.
+              {settings.companyName} is een lokale fietsenspeciaalzaak met een
+              eenvoudige gedachte: goede tweedehands elektrische fietsen,
+              eerlijk geprijsd en klaar om direct te rijden.
             </p>
             <p>
-              Elke fiets die we verkopen is een uniek exemplaar. We nemen de fiets in, inspecteren en reviseren
-              hem in eigen werkplaats, controleren de accu en het elektrische systeem, en fotografieren het
-              exemplaar zoals het bij ons staat. Wat je op de website ziet, is exact de fiets die je kunt kopen.
+              Elke fiets die we verkopen is een uniek exemplaar. We nemen de
+              fiets in, inspecteren en reviseren hem in eigen werkplaats,
+              controleren de accu en het elektrische systeem, en fotografieren
+              het exemplaar zoals het bij ons staat. Wat je op de website ziet,
+              is exact de fiets die je kunt kopen.
             </p>
             <p>
-              Omdat we zelf de hele fiets kennen — inclusief wat er al aan is gedaan — kunnen we ook eerlijk
-              vertellen over de staat van accu en onderdelen, en geven we waar van toepassing garantie.
+              Omdat we zelf de hele fiets kennen — inclusief wat er al aan is
+              gedaan — kunnen we ook eerlijk vertellen over de staat van accu en
+              onderdelen, en geven we waar van toepassing garantie.
             </p>
           </>
         )}
       </div>
 
-      <section className="mt-8 rounded-xl border border-line bg-card p-5" aria-labelledby="warranty-heading">
+      <section
+        className="mt-8 rounded-xl border border-line bg-card p-5"
+        aria-labelledby="warranty-heading"
+      >
         <h2 id="warranty-heading" className="text-base font-semibold text-ink">
-          Garantie
+          {warranty.title}
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
           {warranty.enabled
@@ -49,8 +58,8 @@ export default async function OverOnsPage() {
             : "Garantievoorwaarden worden per fiets vastgelegd en staan vermeld op de fietspagina en bij je bestelling."}
         </p>
         <p className="mt-2 text-sm text-ink-faint">
-          De definitieve garantie- en voorwaardensteksten worden vóór livegang door een juridisch professional
-          gecontroleerd.
+          De definitieve garantie- en voorwaardensteksten worden vóór livegang
+          door een juridisch professional gecontroleerd.
         </p>
       </section>
 
@@ -66,7 +75,10 @@ export default async function OverOnsPage() {
             {settings.phone && (
               <>
                 <br />
-                <a href={`tel:${settings.phone.replace(/\s/g, "")}`} className="text-brand-800 underline">
+                <a
+                  href={`tel:${settings.phone.replace(/\s/g, "")}`}
+                  className="text-brand-800 underline"
+                >
                   {settings.phone}
                 </a>
               </>

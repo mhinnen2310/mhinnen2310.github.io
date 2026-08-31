@@ -22,6 +22,7 @@ export interface WarrantyScopeConfig {
 }
 
 export interface WarrantyConfig {
+  title: string;
   enabled: boolean;
   scopes: WarrantyScopeConfig[];
   /** Shown on product pages as the general warranty note. */
@@ -30,6 +31,7 @@ export interface WarrantyConfig {
 }
 
 export const DEFAULT_WARRANTY_CONFIG: WarrantyConfig = {
+  title: "Garantie",
   enabled: true,
   scopes: [
     {
@@ -43,7 +45,8 @@ export const DEFAULT_WARRANTY_CONFIG: WarrantyConfig = {
       id: "accu",
       label: "Accu",
       months: 6,
-      wording: "6 maanden garantie op de accu van deze fiets (peildatum: verkoopdatum).",
+      wording:
+        "6 maanden garantie op de accu van deze fiets (peildatum: verkoopdatum).",
     },
     {
       id: "elektrisch",
@@ -69,13 +72,24 @@ export async function getWarrantyConfig(): Promise<WarrantyConfig> {
   const raw = (s?.warranty ?? {}) as Record<string, unknown>;
   if (!s?.warranty) return DEFAULT_WARRANTY_CONFIG;
 
-  const scopes: WarrantyScopeConfig[] = (Array.isArray(raw.scopes) ? raw.scopes : [])
-    .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+  const scopes: WarrantyScopeConfig[] = (
+    Array.isArray(raw.scopes) ? raw.scopes : []
+  )
+    .filter(
+      (x): x is Record<string, unknown> => typeof x === "object" && x !== null,
+    )
     .filter((x) => isScopeId(x.id))
     .map((x) => ({
       id: x.id as WarrantyScopeConfig["id"],
-      label: typeof x.label === "string" ? x.label : DEFAULT_WARRANTY_CONFIG.scopes.find((d) => d.id === x.id)?.label ?? "Garantie",
-      months: typeof x.months === "number" && x.months >= 0 ? Math.floor(x.months) : 0,
+      label:
+        typeof x.label === "string"
+          ? x.label
+          : (DEFAULT_WARRANTY_CONFIG.scopes.find((d) => d.id === x.id)?.label ??
+            "Garantie"),
+      months:
+        typeof x.months === "number" && x.months >= 0
+          ? Math.floor(x.months)
+          : 0,
       wording:
         typeof x.wording === "string" && x.wording.trim()
           ? x.wording
@@ -83,9 +97,16 @@ export async function getWarrantyConfig(): Promise<WarrantyConfig> {
     }));
 
   return {
+    title:
+      typeof raw.title === "string" && raw.title.trim()
+        ? raw.title.trim()
+        : DEFAULT_WARRANTY_CONFIG.title,
     enabled: raw.enabled !== false,
     scopes: scopes.length ? scopes : DEFAULT_WARRANTY_CONFIG.scopes,
-    publicNote: typeof raw.publicNote === "string" && raw.publicNote.trim() ? raw.publicNote : DEFAULT_WARRANTY_CONFIG.publicNote,
+    publicNote:
+      typeof raw.publicNote === "string" && raw.publicNote.trim()
+        ? raw.publicNote
+        : DEFAULT_WARRANTY_CONFIG.publicNote,
     requiresReview: raw.requiresReview !== false,
   };
 }
@@ -99,7 +120,9 @@ export async function getWarrantyScopes(): Promise<
 > {
   const config = await getWarrantyConfig();
   if (!config.enabled) return [];
-  return config.scopes.filter((s) => s.months > 0).map(({ id, months, wording }) => ({ id, months, wording }));
+  return config.scopes
+    .filter((s) => s.months > 0)
+    .map(({ id, months, wording }) => ({ id, months, wording }));
 }
 
 /** Public warranty note for product pages (never a legal promise). */
@@ -113,7 +136,9 @@ export function addMonths(d: Date, months: number): Date {
   const originalDay = x.getUTCDate();
   x.setUTCDate(1);
   x.setUTCMonth(x.getUTCMonth() + months);
-  const lastDay = new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0)).getUTCDate();
+  const lastDay = new Date(
+    Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + 1, 0),
+  ).getUTCDate();
   x.setUTCDate(Math.min(originalDay, lastDay));
   return x;
 }

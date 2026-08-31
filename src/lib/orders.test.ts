@@ -21,10 +21,12 @@ const mocks = vi.hoisted(() => {
       invoiceNumber: "DF-F-2026-00001",
     }),
     getInvoiceCompanySnapshot: vi.fn().mockResolvedValue({}),
+    issueCreditNote: vi.fn().mockResolvedValue("DF-C-2026-00001"),
+    paymentProvider: { refund: vi.fn() },
     prisma: {
       $transaction: vi.fn(async (callback: (transaction: typeof tx) => unknown) => callback(tx)),
       warrantyRecord: { findMany: vi.fn() },
-      order: { findUnique: vi.fn() },
+      order: { findUnique: vi.fn(), update: vi.fn() },
       bike: { findUnique: vi.fn() },
     },
   };
@@ -36,15 +38,46 @@ vi.mock("./warranty", () => ({
   addMonths: (date: Date) => date,
   getWarrantyScopes: mocks.getWarrantyScopes,
 }));
-vi.mock("./payments", () => ({ getPaymentProvider: vi.fn() }));
+vi.mock("./payments", () => ({ getPaymentProvider: () => mocks.paymentProvider }));
 vi.mock("./invoices", () => ({
   ensureInvoicePdf: mocks.ensureInvoicePdf,
   createIssuedInvoiceInTx: mocks.createIssuedInvoiceInTx,
   getInvoiceCompanySnapshot: mocks.getInvoiceCompanySnapshot,
+  issueCreditNote: mocks.issueCreditNote,
 }));
 vi.mock("./auth", () => ({ roleAtLeast: vi.fn(), }));
 
-import { completeVerifiedPaymentSale, confirmManualPayment, recordPaymentFailure } from "./orders";
+import { completeVerifiedPaymentSale, confirmManualPayment, recordPaymentFailure, refundOrder } from "./orders";
+
+describe("refund safety", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.prisma.order.findUnique.mockResolvedValue({
+      id: "order-1",
+      orderNumber: "DF-2026-000001",
+      paymentStatus: "PAID",
+      totalCents: 120000,
+      refundedCents: 0,
+      internalNotes: null,
+      lines: [],
+      payments: [{ providerPaymentId: "provider-payment-1" }],
+    });
+    mocks.prisma.order.update.mockResolvedValue({});
+  });
+
+  it("does not mutate local order state when the provider rejects the refund", async () => {
+    mocks.paymentProvider.refund.mockRejectedValue(new Error("provider offline"));
+
+    await expect(refundOrder("order-1", 5000, "correctie", "staff-1")).rejects.toThrow(
+      "De betaalprovider heeft de terugbetaling niet bevestigd",
+    );
+
+    expect(mocks.paymentProvider.refund).toHaveBeenCalledWith("provider-payment-1", 5000);
+    expect(mocks.prisma.$transaction).not.toHaveBeenCalled();
+    expect(mocks.issueCreditNote).not.toHaveBeenCalled();
+    expect(mocks.prisma.order.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "order-1" } }));
+  });
+});
 
 describe("payment failure resource release", () => {
   beforeEach(() => {

@@ -12,6 +12,7 @@ import { Gallery } from "@/components/gallery";
 import { BikeCard } from "@/components/bike-card";
 import { AddToCartButton } from "@/components/add-to-cart-button";
 import { Badge } from "@/components/badge";
+import { mediaWidthUrl } from "@/lib/media";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     b.description?.slice(0, 200) ||
     `${b.brand} ${b.model} — tweedehands ${b.isElectric ? "elektrische" : ""} fiets bij Demi Fietsen. Uniek exemplaar, geïnspecteerd en gereviseerd.`;
   const og = b.coverImage
-    ? `${env.siteUrl}/api/media/${encodeURIComponent(b.coverImage)}/w-1200.webp`
+    ? `${env.siteUrl}${mediaWidthUrl(b.coverImage, 1200)}`
     : null;
   return {
     title: `${b.brand} ${b.model} (${b.inventoryCode})`,
@@ -67,16 +68,15 @@ export default async function BikePage({ params }: Props) {
     "@type": "Product",
     name: `${bike.brand} ${bike.model}`,
     description:
-      bike.description ?? `${bike.brand} ${bike.model}, tweedehands ${bike.isElectric ? "elektrische" : ""} fiets`,
+      bike.description ??
+      `${bike.brand} ${bike.model}, tweedehands ${bike.isElectric ? "elektrische" : ""} fiets`,
     sku: bike.inventoryCode,
     brand: { "@type": "Brand", name: bike.brand },
     model: bike.model,
     ...(bike.colour ? { color: bike.colour } : {}),
     ...(found.images.length
       ? {
-          image: found.images.map((i) =>
-            abs(`/api/media/${encodeURIComponent(i.key)}/w-1200.webp`),
-          ),
+          image: found.images.map((i) => abs(mediaWidthUrl(i.key, 1200))),
         }
       : {}),
     condition: "https://schema.org/UsedCondition",
@@ -96,7 +96,12 @@ export default async function BikePage({ params }: Props) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "Home", item: abs("/") },
-      { "@type": "ListItem", position: 2, name: "Fietsen", item: abs("/fietsen") },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Fietsen",
+        item: abs("/fietsen"),
+      },
       { "@type": "ListItem", position: 3, name: `${bike.brand} ${bike.model}` },
     ],
   };
@@ -108,29 +113,42 @@ export default async function BikePage({ params }: Props) {
   specs.push(["Elektrisch", bike.isElectric ? "Ja" : "Nee"]);
   if (bike.colour) specs.push(["Kleur", bike.colour]);
   if (bike.frameSizeCm) specs.push(["Framemaat", `${bike.frameSizeCm} cm`]);
-  if (bike.wheelSizeInches) specs.push(["Wielmaat", `${bike.wheelSizeInches}"`]);
+  if (bike.wheelSizeInches)
+    specs.push(["Wielmaat", `${bike.wheelSizeInches}"`]);
   if (bike.gears) specs.push(["Versnellingen", `${bike.gears}`]);
-  if (bike.assistanceLevels) specs.push(["Ondersteuningsniveaus", `${bike.assistanceLevels}`]);
+  if (bike.assistanceLevels)
+    specs.push(["Ondersteuningsniveaus", `${bike.assistanceLevels}`]);
   if (bike.brakeInfo) specs.push(["Remmen", bike.brakeInfo]);
   if (bike.drivetrainInfo) specs.push(["Transmissie", bike.drivetrainInfo]);
 
   const electric: [string, string][] = [];
   if (bike.motorManufacturer || bike.motorModel)
-    electric.push(["Motor", [bike.motorManufacturer, bike.motorModel].filter(Boolean).join(" ")]);
+    electric.push([
+      "Motor",
+      [bike.motorManufacturer, bike.motorModel].filter(Boolean).join(" "),
+    ]);
   if (bike.motorPosition) electric.push(["Motorpositie", bike.motorPosition]);
-  if (bike.motorDescription) electric.push(["Motorinfo", bike.motorDescription]);
-  if (bike.nominalVoltage) electric.push(["Spanning", `${bike.nominalVoltage} V`]);
-  if (bike.walkAssist != null) electric.push(["Loopassistentie", bike.walkAssist ? "Ja" : "Nee"]);
+  if (bike.motorDescription)
+    electric.push(["Motorinfo", bike.motorDescription]);
+  if (bike.nominalVoltage)
+    electric.push(["Spanning", `${bike.nominalVoltage} V`]);
+  if (bike.walkAssist != null)
+    electric.push(["Loopassistentie", bike.walkAssist ? "Ja" : "Nee"]);
   if (bike.electricalNotes) electric.push(["Overig", bike.electricalNotes]);
 
   const battery: [string, string][] = [];
   if (bike.batteryType) battery.push(["Accutype", bike.batteryType]);
-  if (bike.batteryVoltage) battery.push(["Spanning", `${bike.batteryVoltage} V`]);
+  if (bike.batteryVoltage)
+    battery.push(["Spanning", `${bike.batteryVoltage} V`]);
   if (bike.batteryAh) battery.push(["Capaciteit", `${bike.batteryAh} Ah`]);
   if (bike.batteryWh) battery.push(["Energie", `${bike.batteryWh} Wh`]);
-  if (bike.batteryCondition) battery.push(["Accu-stand", bike.batteryCondition]);
+  if (bike.batteryCondition)
+    battery.push(["Accu-stand", bike.batteryCondition]);
   if (bike.batteryReconditioned != null)
-    battery.push(["Gereviseerde accu", bike.batteryReconditioned ? "Ja" : "Nee"]);
+    battery.push([
+      "Gereviseerde accu",
+      bike.batteryReconditioned ? "Ja" : "Nee",
+    ]);
   const range =
     bike.rangeMinKm && bike.rangeMaxKm
       ? `${bike.rangeMinKm}–${bike.rangeMaxKm} km`
@@ -155,11 +173,24 @@ export default async function BikePage({ params }: Props) {
         {/* Breadcrumbs */}
         <nav aria-label="Kruimelpad" className="mb-4 text-sm text-ink-faint">
           <ol className="flex flex-wrap items-center gap-1.5">
-            <li><Link href="/" className="hover:text-brand-700 hover:underline">Home</Link></li>
+            <li>
+              <Link href="/" className="hover:text-brand-700 hover:underline">
+                Home
+              </Link>
+            </li>
             <li aria-hidden>/</li>
-            <li><Link href="/fietsen" className="hover:text-brand-700 hover:underline">Fietsen</Link></li>
+            <li>
+              <Link
+                href="/fietsen"
+                className="hover:text-brand-700 hover:underline"
+              >
+                Fietsen
+              </Link>
+            </li>
             <li aria-hidden>/</li>
-            <li aria-current="page" className="text-ink">{bike.brand} {bike.model}</li>
+            <li aria-current="page" className="text-ink">
+              {bike.brand} {bike.model}
+            </li>
           </ol>
         </nav>
 
@@ -170,12 +201,15 @@ export default async function BikePage({ params }: Props) {
               <Gallery images={found.images} title={bike.title} />
             ) : (
               <div className="flex aspect-[4/3] items-center justify-center rounded-xl border border-dashed border-line bg-surface">
-                <p className="text-sm text-ink-faint">Nog geen foto’s beschikbaar</p>
+                <p className="text-sm text-ink-faint">
+                  Nog geen foto’s beschikbaar
+                </p>
               </div>
             )}
             <p className="mt-3 text-xs leading-relaxed text-ink-faint">
-              Elke tweedehands fiets bij Demi Fietsen is een uniek exemplaar. De foto’s en
-              specificaties op deze pagina horen bij deze specifieke fiets.
+              Elke tweedehands fiets bij Demi Fietsen is een uniek exemplaar. De
+              foto’s en specificaties op deze pagina horen bij deze specifieke
+              fiets.
             </p>
           </div>
 
@@ -199,14 +233,19 @@ export default async function BikePage({ params }: Props) {
             )}
 
             <div className="mt-4 flex items-baseline gap-3">
-              <p className="text-3xl font-bold text-ink">{formatPrice(bike.priceCents)}</p>
-              {bike.previousPriceCents != null && bike.previousPriceCents > bike.priceCents && (
-                <p className="text-base text-ink-faint line-through">
-                  {formatPrice(bike.previousPriceCents)}
-                </p>
-              )}
+              <p className="text-3xl font-bold text-ink">
+                {formatPrice(bike.priceCents)}
+              </p>
+              {bike.previousPriceCents != null &&
+                bike.previousPriceCents > bike.priceCents && (
+                  <p className="text-base text-ink-faint line-through">
+                    {formatPrice(bike.previousPriceCents)}
+                  </p>
+                )}
             </div>
-            <p className="mt-1 text-xs text-ink-faint">Vraagprijs, inclusief btw indien van toepassing.</p>
+            <p className="mt-1 text-xs text-ink-faint">
+              Vraagprijs, inclusief btw indien van toepassing.
+            </p>
 
             {/* CTAs */}
             <div className="mt-6 space-y-3">
@@ -232,21 +271,34 @@ export default async function BikePage({ params }: Props) {
                 </>
               )}
               {isReserved && (
-                <div role="status" className="rounded-lg border border-accent-500/30 bg-accent-50 px-4 py-3 text-sm text-accent-700">
-                  <strong>Deze fiets is momenteel gereserveerd.</strong> Er wordt net over
-                  onderhandeld of er wordt afgerekend. Wil je hem graag? Bel of mail ons — we
-                  laten direct weten of hij nog te hebben is.
+                <div
+                  role="status"
+                  className="rounded-lg border border-accent-500/30 bg-accent-50 px-4 py-3 text-sm text-accent-700"
+                >
+                  <strong>Deze fiets is momenteel gereserveerd.</strong> Er
+                  wordt net over onderhandeld of er wordt afgerekend. Wil je hem
+                  graag? Bel of mail ons — we laten direct weten of hij nog te
+                  hebben is.
                 </div>
               )}
               {isSold && (
-                <div role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
-                  <strong className="font-semibold text-ink">Deze fiets is verkocht.</strong>{" "}
-                  Elke fiets is een uniek exemplaar, dus deze exacte fiets is niet meer te koop.
-                  Onderaan deze pagina staan vergelijkbare fietsen die nu beschikbaar zijn.
+                <div
+                  role="status"
+                  className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-soft"
+                >
+                  <strong className="font-semibold text-ink">
+                    Deze fiets is verkocht.
+                  </strong>{" "}
+                  Elke fiets is een uniek exemplaar, dus deze exacte fiets is
+                  niet meer te koop. Onderaan deze pagina staan vergelijkbare
+                  fietsen die nu beschikbaar zijn.
                 </div>
               )}
               {!isAvailable && !isReserved && !isSold && (
-                <div role="status" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-soft">
+                <div
+                  role="status"
+                  className="rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-soft"
+                >
                   Deze fiets is momenteel niet beschikbaar.
                 </div>
               )}
@@ -262,10 +314,15 @@ export default async function BikePage({ params }: Props) {
             {/* Quick specs */}
             {specs.length > 0 && (
               <dl className="mt-6 overflow-hidden rounded-xl border border-line">
-                <div className="bg-surface px-4 py-2.5 text-sm font-semibold text-ink">Specificaties</div>
+                <div className="bg-surface px-4 py-2.5 text-sm font-semibold text-ink">
+                  Specificaties
+                </div>
                 <div className="divide-y divide-line bg-card">
                   {specs.map(([k, v]) => (
-                    <div key={k} className="flex justify-between gap-4 px-4 py-2 text-sm">
+                    <div
+                      key={k}
+                      className="flex justify-between gap-4 px-4 py-2 text-sm"
+                    >
                       <dt className="text-ink-soft">{k}</dt>
                       <dd className="text-right font-medium text-ink">{v}</dd>
                     </div>
@@ -289,19 +346,28 @@ export default async function BikePage({ params }: Props) {
               {bike.conditionDescription && <p>{bike.conditionDescription}</p>}
               {bike.cosmeticDefects && (
                 <p>
-                  <strong className="font-semibold text-ink">Kleine gebreken: </strong>
+                  <strong className="font-semibold text-ink">
+                    Kleine gebreken:{" "}
+                  </strong>
                   {bike.cosmeticDefects}
                 </p>
               )}
               {bike.technicalDefects && (
                 <p>
-                  <strong className="font-semibold text-ink">Technisch: </strong>
+                  <strong className="font-semibold text-ink">
+                    Technisch:{" "}
+                  </strong>
                   {bike.technicalDefects}
                 </p>
               )}
-              {!bike.conditionGrade && !bike.conditionDescription && !bike.cosmeticDefects && !bike.technicalDefects && (
-                <p className="text-ink-faint">Geen specifieke condienotities bijgehouden.</p>
-              )}
+              {!bike.conditionGrade &&
+                !bike.conditionDescription &&
+                !bike.cosmeticDefects &&
+                !bike.technicalDefects && (
+                  <p className="text-ink-faint">
+                    Geen specifieke condienotities bijgehouden.
+                  </p>
+                )}
             </div>
           </Section>
 
@@ -331,9 +397,9 @@ export default async function BikePage({ params }: Props) {
                   </dl>
                   {range && (
                     <p className="mt-2 text-xs text-ink-faint">
-                      De actieradius is een schatting op basis van het type accu en gebruik;
-                      windsnelheid, heuvels en ondersteuningsniveau beïnvloeden de werkelijke
-                      actieradius.
+                      De actieradius is een schatting op basis van het type accu
+                      en gebruik; windsnelheid, heuvels en ondersteuningsniveau
+                      beïnvloeden de werkelijke actieradius.
                     </p>
                   )}
                 </Section>
@@ -345,9 +411,25 @@ export default async function BikePage({ params }: Props) {
             <Section title="Inbegrepen & extra’s">
               <ul className="grid gap-1.5 sm:grid-cols-2">
                 {bike.features.map((f) => (
-                  <li key={f} className="flex items-center gap-2 text-sm text-ink-soft">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden className="shrink-0 text-brand-600">
-                      <path d="M2.5 7.5l3 3 6-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <li
+                    key={f}
+                    className="flex items-center gap-2 text-sm text-ink-soft"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      aria-hidden
+                      className="shrink-0 text-brand-600"
+                    >
+                      <path
+                        d="M2.5 7.5l3 3 6-7"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                     {featureLabel(f)}
                   </li>
@@ -358,17 +440,34 @@ export default async function BikePage({ params }: Props) {
 
           {bike.repairSummary && (
             <Section title="Inspectie & revisie">
-              <p className="text-sm leading-relaxed text-ink-soft">{bike.repairSummary}</p>
+              <p className="text-sm leading-relaxed text-ink-soft">
+                {bike.repairSummary}
+              </p>
             </Section>
           )}
 
           <Section title="Ophalen & bezorgen">
+            {delivery.title && (
+              <p className="mb-1 font-medium text-ink">{delivery.title}</p>
+            )}
+            {delivery.description && (
+              <p className="mb-3 text-sm leading-relaxed text-ink-soft">
+                {delivery.description}
+              </p>
+            )}
             <ul className="space-y-2 text-sm text-ink-soft">
               {deliveryMethods.map((m) => (
-                <li key={m.id} className="flex items-start justify-between gap-4">
+                <li
+                  key={m.id}
+                  className="flex items-start justify-between gap-4"
+                >
                   <span>
                     {m.label}
-                    {m.instructions && <span className="block text-xs text-ink-faint">{m.instructions}</span>}
+                    {m.instructions && (
+                      <span className="block text-xs text-ink-faint">
+                        {m.instructions}
+                      </span>
+                    )}
                   </span>
                   <span className="shrink-0 font-medium text-ink">
                     {m.priceCents === 0 ? "Gratis" : formatPrice(m.priceCents)}
@@ -376,16 +475,30 @@ export default async function BikePage({ params }: Props) {
                 </li>
               ))}
               {deliveryMethods.length === 0 && (
-                <li className="text-ink-faint">Neem voor leveropties contact met ons op.</li>
+                <li className="text-ink-faint">
+                  Neem voor leveropties contact met ons op.
+                </li>
               )}
             </ul>
+            {delivery.options && delivery.options.length > 0 && (
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-ink-faint">
+                {delivery.options.map((option) => (
+                  <li key={option}>{option}</li>
+                ))}
+              </ul>
+            )}
           </Section>
         </div>
 
         {/* Description */}
         {bike.description && (
-          <section className="mt-8 rounded-xl border border-line bg-card p-6" aria-labelledby="desc-heading">
-            <h2 id="desc-heading" className="text-lg font-semibold text-ink">Over deze fiets</h2>
+          <section
+            className="mt-8 rounded-xl border border-line bg-card p-6"
+            aria-labelledby="desc-heading"
+          >
+            <h2 id="desc-heading" className="text-lg font-semibold text-ink">
+              Over deze fiets
+            </h2>
             <div className="prose-plain mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
               {bike.description.split("\n\n").map((p, i) => (
                 <p key={i}>{p}</p>
@@ -397,8 +510,13 @@ export default async function BikePage({ params }: Props) {
         {/* Similar bikes */}
         {similar.length > 0 && (
           <section className="mt-10" aria-labelledby="similar-heading">
-            <h2 id="similar-heading" className="text-xl font-semibold tracking-tight text-ink">
-              {isSold ? "Beschikbare alternatieven" : "Verwacht je iets vergelijkbaars?"}
+            <h2
+              id="similar-heading"
+              className="text-xl font-semibold tracking-tight text-ink"
+            >
+              {isSold
+                ? "Beschikbare alternatieven"
+                : "Verwacht je iets vergelijkbaars?"}
             </h2>
             <p className="mt-1 text-sm text-ink-soft">
               {isSold
@@ -417,9 +535,18 @@ export default async function BikePage({ params }: Props) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="rounded-xl border border-line bg-card p-5" aria-label={title}>
+    <section
+      className="rounded-xl border border-line bg-card p-5"
+      aria-label={title}
+    >
       <h2 className="text-base font-semibold text-ink">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>

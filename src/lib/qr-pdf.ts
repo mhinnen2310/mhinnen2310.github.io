@@ -22,11 +22,14 @@ export async function generateQrBatchPdf(batchId: string): Promise<{ filename: s
     for (let index = 0; index < page.length; index++) {
       const tag = page[index]!; const col = index % columns; const row = Math.floor(index / columns);
       const x = margin + col * cellW; const y = margin + row * cellH;
-      const qrSize = Math.min(cellW - 28, cellH - 55, 118);
-      const png = await QRCode.toBuffer(qrUrl(tag.secureToken), { errorCorrectionLevel: "M", type: "png", margin: 4, width: 512 });
-      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#14532d").text("DEMI FIETSEN", x, y + 8, { width: cellW, align: "center" });
-      doc.image(png, x + (cellW - qrSize) / 2, y + 25, { width: qrSize, height: qrSize });
-      doc.font("Helvetica-Bold").fontSize(12).fillColor("#111111").text(tag.displayCode, x, y + 30 + qrSize, { width: cellW, align: "center" });
+      const qrSize = batch.labelsPerPage === 10 ? 118 : 96;
+      const qrY = y + (batch.labelsPerPage === 10 ? 18 : 23);
+      const png = await QRCode.toBuffer(qrUrl(tag.secureToken, batch.qrBaseUrl), { errorCorrectionLevel: "M", type: "png", margin: 4, width: 512 });
+      doc.save().lineWidth(0.3).strokeColor("#cbd5e1").rect(x, y, cellW, cellH).stroke().restore();
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#14532d").text("DEMI FIETSEN", x, y + 5, { width: cellW, align: "center" });
+      doc.image(png, x + (cellW - qrSize) / 2, qrY, { width: qrSize, height: qrSize });
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#111111").text(tag.displayCode, x, qrY + qrSize + 3, { width: cellW, align: "center" });
+      doc.font("Helvetica").fontSize(5.5).fillColor("#64748b").text(batch.batchNumber, x, y + cellH - 8, { width: cellW, align: "center" });
     }
   }
   doc.end();

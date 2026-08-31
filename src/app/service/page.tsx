@@ -32,13 +32,16 @@ export default async function ServicePage(props: {
 }) {
   const raw = await props.searchParams;
   const order = typeof raw.order === "string" ? raw.order : null;
+  const bikeId = typeof raw.bikeId === "string" ? raw.bikeId : null;
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">Retour, garantie & service</h1>
+      <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+        Retour, garantie & service
+      </h1>
       <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-        Iets met je fiets of bestelling? Verklare het hieronder en voeg eventueel foto&apos;s toe. We beoordelen
-        elk verzoek per geval en nemen contact met je op — het indienen van een verzoek is nog geen
-        toezegging.
+        Iets met je fiets of bestelling? Verklare het hieronder en voeg
+        eventueel foto&apos;s toe. We beoordelen elk verzoek per geval en nemen
+        contact met je op — het indienen van een verzoek is nog geen toezegging.
       </p>
 
       <div className="mt-6">
@@ -64,16 +67,34 @@ export default async function ServicePage(props: {
               placeholder: "DF-2026-000001",
               hint: "Zoek je bestelnummer via e-mail of in je account.",
             },
-            { name: "name", label: "Naam", type: "text", required: true, autoComplete: "name" },
-            { name: "email", label: "E-mailadres", type: "email", required: true, autoComplete: "email" },
-            { name: "phone", label: "Telefoon (optioneel)", type: "tel", autoComplete: "tel" },
+            {
+              name: "name",
+              label: "Naam",
+              type: "text",
+              required: true,
+              autoComplete: "name",
+            },
+            {
+              name: "email",
+              label: "E-mailadres",
+              type: "email",
+              required: true,
+              autoComplete: "email",
+            },
+            {
+              name: "phone",
+              label: "Telefoon (optioneel)",
+              type: "tel",
+              autoComplete: "tel",
+            },
             {
               name: "description",
               label: "Beschrijf het probleem",
               type: "textarea",
               required: true,
               rows: 6,
-              placeholder: "Wat is er aan de hand? Sinds wanneer? Wat heb je al geprobeerd?",
+              placeholder:
+                "Wat is er aan de hand? Sinds wanneer? Wat heb je al geprobeerd?",
             },
             {
               name: "photos",
@@ -83,11 +104,13 @@ export default async function ServicePage(props: {
               accept: "image/*",
             },
           ]}
+          extra={bikeId ? { bikeId } : undefined}
         />
       </div>
 
       <p className="mt-6 text-xs text-ink-faint">
-        De garantieomvang van je fiets staat vermeld bij de fiets/bestelling. Algemene informatie:{" "}
+        De garantieomvang van je fiets staat vermeld bij de fiets/bestelling.
+        Algemene informatie:{" "}
         <Link href="/retourbeleid" className="underline">
           retour- en garantiebeleid
         </Link>

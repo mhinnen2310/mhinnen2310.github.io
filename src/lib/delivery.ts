@@ -22,6 +22,9 @@ export interface DeliveryConfig {
   methods: DeliveryMethod[];
   freeDeliveryAboveCents: number | null;
   requiresReview: boolean;
+  title?: string | null;
+  description?: string | null;
+  options?: string[];
 }
 
 export const DEFAULT_DELIVERY: DeliveryConfig = {
@@ -31,7 +34,8 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
       label: "Ophalen bij Demi Fietsen",
       enabled: true,
       priceCents: 0,
-      instructions: "We maken een afspraak voor ophaling nadat je veilig online hebt betaald.",
+      instructions:
+        "We maken een afspraak voor ophaling nadat je veilig online hebt betaald.",
       appliesTo: ["UNIQUE_BIKE", "STOCK_ITEM"],
       requiresAddress: false,
     },
@@ -56,30 +60,49 @@ export const DEFAULT_DELIVERY: DeliveryConfig = {
   ],
   freeDeliveryAboveCents: null,
   requiresReview: true,
+  title: null,
+  description: null,
+  options: [],
 };
 
 export async function getDeliveryConfig(): Promise<DeliveryConfig> {
   const s = await prisma.siteSettings.findFirst();
   if (!s?.delivery) return DEFAULT_DELIVERY;
-  const raw = s.delivery as Partial<DeliveryConfig> & { methods?: Partial<DeliveryMethod>[] };
+  const raw = s.delivery as Partial<DeliveryConfig> & {
+    methods?: Partial<DeliveryMethod>[];
+  };
   const methods = (raw.methods ?? DEFAULT_DELIVERY.methods).map((m) => ({
     id: m.id,
     label: m.label,
     enabled: m.enabled !== false,
     priceCents: typeof m.priceCents === "number" ? m.priceCents : 0,
     instructions: m.instructions ?? null,
-    appliesTo: m.appliesTo?.length ? m.appliesTo : DEFAULT_DELIVERY.methods.find((d) => d.id === m.id)?.appliesTo ?? ["STOCK_ITEM"],
+    appliesTo: m.appliesTo?.length
+      ? m.appliesTo
+      : (DEFAULT_DELIVERY.methods.find((d) => d.id === m.id)?.appliesTo ?? [
+          "STOCK_ITEM",
+        ]),
     requiresAddress:
       typeof m.requiresAddress === "boolean"
         ? m.requiresAddress
-        : (DEFAULT_DELIVERY.methods.find((d) => d.id === m.id)?.requiresAddress ?? (m.id !== "pickup")),
+        : (DEFAULT_DELIVERY.methods.find((d) => d.id === m.id)
+            ?.requiresAddress ?? m.id !== "pickup"),
     postcodePrefixes: m.postcodePrefixes,
   }));
   return {
     methods,
     freeDeliveryAboveCents:
-      typeof raw.freeDeliveryAboveCents === "number" ? raw.freeDeliveryAboveCents : null,
+      typeof raw.freeDeliveryAboveCents === "number"
+        ? raw.freeDeliveryAboveCents
+        : null,
     requiresReview: raw.requiresReview !== false,
+    title: typeof raw.title === "string" ? raw.title : null,
+    description: typeof raw.description === "string" ? raw.description : null,
+    options: Array.isArray(raw.options)
+      ? raw.options
+          .filter((value): value is string => typeof value === "string")
+          .slice(0, 12)
+      : [],
   };
 }
 
@@ -113,17 +136,24 @@ export function quoteDelivery(
   // example, an accessories-only parcel method may not be used for a bike.
   const applicable = [...cartKinds].every((k) => method.appliesTo.includes(k));
   if (!applicable) {
-    throw new DeliveryError(`"${method.label}" geldt niet voor de items in je winkelwagen.`);
+    throw new DeliveryError(
+      `"${method.label}" geldt niet voor de items in je winkelwagen.`,
+    );
   }
   if (method.postcodePrefixes?.length && postcode) {
     const normalized = postcode.toUpperCase().replace(/\s/g, "");
-    const inRegion = method.postcodePrefixes.some((p) => normalized.startsWith(p.toUpperCase()));
+    const inRegion = method.postcodePrefixes.some((p) =>
+      normalized.startsWith(p.toUpperCase()),
+    );
     if (!inRegion) {
-      throw new DeliveryError(`"${method.label}" is alleen mogelijk in de regio ${method.postcodePrefixes.join(", ")}.`);
+      throw new DeliveryError(
+        `"${method.label}" is alleen mogelijk in de regio ${method.postcodePrefixes.join(", ")}.`,
+      );
     }
   }
   const free =
-    config.freeDeliveryAboveCents != null && subtotalCents >= config.freeDeliveryAboveCents;
+    config.freeDeliveryAboveCents != null &&
+    subtotalCents >= config.freeDeliveryAboveCents;
   return {
     methodId: method.id,
     label: method.label,

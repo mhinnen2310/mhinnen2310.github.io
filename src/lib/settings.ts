@@ -14,6 +14,8 @@ export interface AnnouncementConfig {
   enabled: boolean;
   text: string;
   link: string | null;
+  startAt: string | null;
+  endAt: string | null;
 }
 
 export interface SocialLink {
@@ -39,9 +41,28 @@ export interface HomepageConfig {
   showRecentlyAdded: boolean;
   showWhyUs: boolean;
   showHowItWorks: boolean;
+  primaryCta: string | null;
+  secondaryCta: string | null;
 }
 
-export const DEFAULT_ANNOUNCEMENT: AnnouncementConfig = { enabled: false, text: "", link: null };
+export interface DeliveryConfig {
+  title: string | null;
+  description: string | null;
+  options: string[];
+}
+
+export interface WarrantyConfig {
+  title: string | null;
+  description: string | null;
+}
+
+export const DEFAULT_ANNOUNCEMENT: AnnouncementConfig = {
+  enabled: false,
+  text: "",
+  link: null,
+  startAt: null,
+  endAt: null,
+};
 
 export const DEFAULT_HOMEPAGE: HomepageConfig = {
   heroTitle: null,
@@ -50,6 +71,18 @@ export const DEFAULT_HOMEPAGE: HomepageConfig = {
   showRecentlyAdded: true,
   showWhyUs: true,
   showHowItWorks: true,
+  primaryCta: null,
+  secondaryCta: null,
+};
+
+export const DEFAULT_DELIVERY: DeliveryConfig = {
+  title: null,
+  description: null,
+  options: [],
+};
+export const DEFAULT_WARRANTY: WarrantyConfig = {
+  title: null,
+  description: null,
 };
 
 export const DEFAULT_SEO: SeoConfig = {
@@ -61,13 +94,21 @@ export const DEFAULT_SEO: SeoConfig = {
 
 export interface SettingsView extends Omit<
   SiteSettings,
-  "announcement" | "socialLinks" | "openingHours" | "homepage" | "seo"
+  | "announcement"
+  | "socialLinks"
+  | "openingHours"
+  | "homepage"
+  | "seo"
+  | "delivery"
+  | "warranty"
 > {
   announcement: AnnouncementConfig;
   socialLinks: SocialLink[];
   openingHours: OpeningHoursEntry[];
   homepage: HomepageConfig;
   seo: SeoConfig;
+  delivery: DeliveryConfig;
+  warranty: WarrantyConfig;
 }
 
 function parseAnnouncement(raw: unknown): AnnouncementConfig {
@@ -77,14 +118,29 @@ function parseAnnouncement(raw: unknown): AnnouncementConfig {
     enabled: a.enabled === true,
     text: typeof a.text === "string" ? a.text : "",
     link: typeof a.link === "string" && a.link.startsWith("/") ? a.link : null,
+    startAt:
+      typeof a.startAt === "string" && !Number.isNaN(Date.parse(a.startAt))
+        ? a.startAt
+        : null,
+    endAt:
+      typeof a.endAt === "string" && !Number.isNaN(Date.parse(a.endAt))
+        ? a.endAt
+        : null,
   };
 }
 
 function parseSocial(raw: unknown): SocialLink[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
-    .filter((x) => typeof x.label === "string" && typeof x.url === "string" && /^https?:\/\//.test(x.url))
+    .filter(
+      (x): x is Record<string, unknown> => typeof x === "object" && x !== null,
+    )
+    .filter(
+      (x) =>
+        typeof x.label === "string" &&
+        typeof x.url === "string" &&
+        /^https?:\/\//.test(x.url),
+    )
     .slice(0, 12)
     .map((x) => ({ label: x.label as string, url: x.url as string }));
 }
@@ -92,7 +148,9 @@ function parseSocial(raw: unknown): SocialLink[] {
 function parseOpeningHours(raw: unknown): OpeningHoursEntry[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null)
+    .filter(
+      (x): x is Record<string, unknown> => typeof x === "object" && x !== null,
+    )
     .filter((x) => typeof x.days === "string" && typeof x.hours === "string")
     .slice(0, 14)
     .map((x) => ({ days: x.days as string, hours: x.hours as string }));
@@ -108,6 +166,8 @@ function parseHomepage(raw: unknown): HomepageConfig {
     showRecentlyAdded: h.showRecentlyAdded !== false,
     showWhyUs: h.showWhyUs !== false,
     showHowItWorks: h.showHowItWorks !== false,
+    primaryCta: typeof h.primaryCta === "string" ? h.primaryCta : null,
+    secondaryCta: typeof h.secondaryCta === "string" ? h.secondaryCta : null,
   };
 }
 
@@ -115,8 +175,14 @@ function parseSeo(raw: unknown): SeoConfig {
   if (typeof raw !== "object" || raw === null) return DEFAULT_SEO;
   const s = raw as Record<string, unknown>;
   return {
-    siteName: typeof s.siteName === "string" && s.siteName.trim() ? s.siteName : DEFAULT_SEO.siteName,
-    description: typeof s.description === "string" && s.description.trim() ? s.description : DEFAULT_SEO.description,
+    siteName:
+      typeof s.siteName === "string" && s.siteName.trim()
+        ? s.siteName
+        : DEFAULT_SEO.siteName,
+    description:
+      typeof s.description === "string" && s.description.trim()
+        ? s.description
+        : DEFAULT_SEO.description,
     ogImageKey: typeof s.ogImageKey === "string" ? s.ogImageKey : null,
   };
 }
@@ -129,6 +195,37 @@ export function toSettingsView(s: SiteSettings): SettingsView {
     openingHours: parseOpeningHours(s.openingHours),
     homepage: parseHomepage(s.homepage),
     seo: parseSeo(s.seo),
+    delivery: parseDelivery(s.delivery),
+    warranty: parseWarranty(s.warranty),
+  };
+}
+
+function parseDelivery(raw: unknown): DeliveryConfig {
+  if (typeof raw !== "object" || raw === null) return DEFAULT_DELIVERY;
+  const value = raw as Record<string, unknown>;
+  return {
+    title: typeof value.title === "string" ? value.title : null,
+    description:
+      typeof value.description === "string" ? value.description : null,
+    options: Array.isArray(value.options)
+      ? value.options
+          .filter((item): item is string => typeof item === "string")
+          .slice(0, 12)
+      : [],
+  };
+}
+
+function parseWarranty(raw: unknown): WarrantyConfig {
+  if (typeof raw !== "object" || raw === null) return DEFAULT_WARRANTY;
+  const value = raw as Record<string, unknown>;
+  return {
+    title: typeof value.title === "string" ? value.title : null,
+    description:
+      typeof value.description === "string"
+        ? value.description
+        : typeof value.publicNote === "string"
+          ? value.publicNote
+          : null,
   };
 }
 
@@ -154,8 +251,8 @@ function defaultSettingsView(): SettingsView {
     openingHours: [],
     homepage: DEFAULT_HOMEPAGE,
     aboutText: null,
-    delivery: null,
-    warranty: null,
+    delivery: DEFAULT_DELIVERY,
+    warranty: DEFAULT_WARRANTY,
     marketplace: null,
     seo: DEFAULT_SEO,
     analytics: null,
@@ -194,26 +291,115 @@ export async function updateSettings(
     announcement?: AnnouncementConfig | null;
     homepage?: Partial<HomepageConfig> | null;
     seo?: Partial<SeoConfig> | null;
+    delivery?: Partial<DeliveryConfig> | null;
+    warranty?: Partial<WarrantyConfig> | null;
   },
+  actorId?: string | null,
 ): Promise<SettingsView> {
-  const { openingHours, socialLinks, announcement, homepage, seo, ...rest } = data;
-  const existing = await prisma.siteSettings.findUnique({ where: { id: 1 } });
-  const update: Record<string, unknown> = { ...rest };
-  if (openingHours !== undefined) update.openingHours = openingHours ?? null;
-  if (socialLinks !== undefined) update.socialLinks = socialLinks ?? null;
-  if (announcement !== undefined) update.announcement = announcement ?? null;
-  if (homepage) {
-    const cur = parseHomepage(existing?.homepage);
-    update.homepage = { ...cur, ...homepage };
-  }
-  if (seo) {
-    const cur = parseSeo(existing?.seo);
-    update.seo = { ...cur, ...seo };
-  }
-  const s = await prisma.siteSettings.upsert({
-    where: { id: 1 },
-    create: { id: 1, ...update } as never,
-    update,
+  const {
+    openingHours,
+    socialLinks,
+    announcement,
+    homepage,
+    seo,
+    delivery,
+    warranty,
+    ...rest
+  } = data;
+  const s = await prisma.$transaction(async (tx) => {
+    const existing = await tx.siteSettings.findUnique({ where: { id: 1 } });
+    const update: Record<string, unknown> = { ...rest };
+    if (openingHours !== undefined) update.openingHours = openingHours ?? null;
+    if (socialLinks !== undefined) update.socialLinks = socialLinks ?? null;
+    if (announcement !== undefined) update.announcement = announcement ?? null;
+    if (homepage)
+      update.homepage = { ...parseHomepage(existing?.homepage), ...homepage };
+    if (seo) update.seo = { ...parseSeo(existing?.seo), ...seo };
+    // Keep the richer delivery/warranty structures (methods, scopes and
+    // legal flags) intact while allowing the editor to update copy fields.
+    if (delivery) {
+      const current =
+        existing?.delivery &&
+        typeof existing.delivery === "object" &&
+        !Array.isArray(existing.delivery)
+          ? (existing.delivery as Record<string, unknown>)
+          : {};
+      update.delivery = { ...current, ...delivery };
+    }
+    if (warranty) {
+      const current =
+        existing?.warranty &&
+        typeof existing.warranty === "object" &&
+        !Array.isArray(existing.warranty)
+          ? (existing.warranty as Record<string, unknown>)
+          : {};
+      update.warranty = { ...current, ...warranty };
+    }
+
+    if (existing) {
+      const last = await tx.siteSettingsRevision.findFirst({
+        where: { settingsId: 1 },
+        orderBy: { version: "desc" },
+        select: { version: true },
+      });
+      const { id: _id, updatedAt: _updatedAt, ...snapshot } = existing;
+      await tx.siteSettingsRevision.create({
+        data: {
+          settingsId: 1,
+          version: (last?.version ?? 0) + 1,
+          snapshot: JSON.parse(JSON.stringify(snapshot)),
+          changedById: actorId ?? null,
+        },
+      });
+    }
+    return tx.siteSettings.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...update } as never,
+      update,
+    });
   });
   return toSettingsView(s);
+}
+
+export interface SettingsRevisionView {
+  id: string;
+  version: number;
+  createdAt: Date;
+  changedBy: { name: string | null; email: string } | null;
+}
+
+export async function listSettingsRevisions(
+  limit = 30,
+): Promise<SettingsRevisionView[]> {
+  return prisma.siteSettingsRevision.findMany({
+    where: { settingsId: 1 },
+    orderBy: { version: "desc" },
+    take: Math.min(Math.max(limit, 1), 100),
+    select: {
+      id: true,
+      version: true,
+      createdAt: true,
+      changedBy: { select: { name: true, email: true } },
+    },
+  });
+}
+
+/** Restore an immutable snapshot by creating a new revision of the current state first. */
+export async function restoreSettingsRevision(
+  revisionId: string,
+  actorId: string,
+): Promise<SettingsView | null> {
+  const revision = await prisma.siteSettingsRevision.findUnique({
+    where: { id: revisionId },
+  });
+  if (
+    !revision ||
+    revision.settingsId !== 1 ||
+    typeof revision.snapshot !== "object" ||
+    revision.snapshot === null
+  )
+    return null;
+  const snapshot = revision.snapshot as Record<string, unknown>;
+  const { id: _id, updatedAt: _updatedAt, ...data } = snapshot;
+  return updateSettings(data as never, actorId);
 }

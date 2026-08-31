@@ -328,6 +328,10 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
       cancelUrl: `${resultUrl}&status=geannuleerd`,
       metadata: { orderNumber: order.orderNumber, paymentId: payment.id },
     });
+    // Preserve any returned provider reference before validating the rest of
+    // the response. A malformed response with a real external payment remains
+    // ambiguous and must never release the reserved stock.
+    externalPaymentId = intent.providerPaymentId || null;
     if (
       !intent.providerPaymentId ||
       intent.amountCents !== totalCents ||
@@ -335,7 +339,6 @@ export async function createCheckout(input: CheckoutInput): Promise<CreateChecko
     ) {
       throw new Error("De betaalprovider gaf geen geldig bedrag, valuta of betalingskenmerk terug.");
     }
-    externalPaymentId = intent.providerPaymentId;
     paymentUrl = intent.paymentUrl;
     const bound = await prisma.payment.updateMany({
       where: { id: payment.id, orderId: order.id, status: "creating" },

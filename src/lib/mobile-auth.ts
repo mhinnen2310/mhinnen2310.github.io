@@ -14,7 +14,7 @@ export interface MobileStaffSession { id: string; user: SessionUser; }
 
 export async function loginMobile(email: string, password: string, deviceId: string) {
   const user = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
-  if (!user?.passwordHash || !roleAtLeast(user.role, "STAFF") || !(await argon2.verify(user.passwordHash, password))) throw new MobileAuthError("Inloggen mislukt.");
+  if (!user?.passwordHash || user.isActive === false || !roleAtLeast(user.role, "STAFF") || !(await argon2.verify(user.passwordHash, password))) throw new MobileAuthError("Inloggen mislukt.");
   const tokens = bundle(); await prisma.$transaction([
     prisma.mobileSession.create({ data: { userId: user.id, deviceIdHash: secretHash(deviceId), accessTokenHash: secretHash(tokens.accessToken), refreshTokenHash: secretHash(tokens.refreshToken), accessExpiresAt: tokens.accessExpiresAt, refreshExpiresAt: tokens.refreshExpiresAt } }),
     prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
@@ -35,7 +35,7 @@ function bearerToken(authHeader: string | null) {
 export async function requireMobileStaffSession(authHeader: string | null): Promise<MobileStaffSession> {
   const raw = bearerToken(authHeader);
   const session = await prisma.mobileSession.findUnique({ where: { accessTokenHash: secretHash(raw) }, include: { user: true } });
-  if (!session || session.revokedAt || session.accessExpiresAt <= new Date() || !roleAtLeast(session.user.role, "STAFF")) throw new MobileAuthError("Mobiele sessie verlopen.");
+  if (!session || session.revokedAt || session.accessExpiresAt <= new Date() || session.user.isActive === false || !roleAtLeast(session.user.role, "STAFF")) throw new MobileAuthError("Mobiele sessie verlopen.");
   await prisma.mobileSession.updateMany({ where: { id: session.id, revokedAt: null }, data: { lastUsedAt: new Date() } });
   return { id: session.id, user: { id: session.user.id, email: session.user.email, name: session.user.name, role: session.user.role, emailVerified: session.user.emailVerified } };
 }

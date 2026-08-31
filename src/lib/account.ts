@@ -4,6 +4,7 @@ import { issueAuthToken, consumeAuthToken } from "./auth-tokens";
 import { rateLimitRequest, ipHashOf } from "./rate-limit";
 import { emailPasswordReset, emailEmailVerify, emailAccountCreated } from "./email";
 import { isEmail } from "./forms";
+import { storage } from "./storage";
 
 /**
  * Customer account lifecycle (spec 20).
@@ -101,7 +102,11 @@ export async function resetPasswordWithToken(token: string, newPassword: unknown
   const userId = await consumeAuthToken(token, "password-reset");
   if (!userId) return false;
   const passwordHash = await hashPassword(password);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash, sessionVersion: { increment: 1 } } }),
+    prisma.mobileSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now, revokedReason: "password_reset" } }),
+  ]);
   return true;
 }
 
@@ -112,7 +117,11 @@ export async function changePassword(userId: string, current: unknown, next: unk
   const ok = await verifyPassword(user.passwordHash, typeof current === "string" ? current : "");
   if (!ok) throw new AccountError("Huidig wachtwoord is onjuist.", "current");
   const passwordHash = await hashPassword(nextPw);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash, sessionVersion: { increment: 1 } } }),
+    prisma.mobileSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now, revokedReason: "password_changed" } }),
+  ]);
 }
 
 export async function updateProfile(userId: string, input: { name: unknown; email: unknown }): Promise<void> {
@@ -137,7 +146,13 @@ export async function updateProfile(userId: string, input: { name: unknown; emai
  * anonymised (the business must retain them for tax/accounting).
  */
 export async function deleteAccount(userId: string): Promise<void> {
-  await prisma.$transaction(async (tx) => {
+  const pdfKeys = await prisma.$transaction(async (tx) => {
+    const orders = await tx.order.findMany({ where: { userId }, select: { id: true } });
+    const orderIds = orders.map((order) => order.id);
+    const invoices = orderIds.length
+      ? await tx.invoice.findMany({ where: { orderId: { in: orderIds } }, select: { pdfKey: true } })
+      : [];
+
     await tx.order.updateMany({
       where: { userId },
       data: {
@@ -146,10 +161,41 @@ export async function deleteAccount(userId: string): Promise<void> {
         customerEmail: "verwijderd@voorbeeld.nl",
         customerPhone: null,
         customerCompany: null,
-        internalNotes:
-          `Account door klant verwijderd (GDPR): persoonsgegevens geanonimiseerd op ${new Date().toISOString()}.`,
+        billingLine1: null,
+        billingLine2: null,
+        billingCity: null,
+        billingPostcode: null,
+        deliveryLine1: null,
+        deliveryLine2: null,
+        deliveryCity: null,
+        deliveryPostcode: null,
       },
     });
+    if (orderIds.length) {
+      await tx.invoice.updateMany({
+        where: { orderId: { in: orderIds } },
+        data: {
+          customer: {
+            name: "Anoniem (account verwijderd)",
+            company: null,
+            email: null,
+            phone: null,
+            line1: null,
+            line2: null,
+            city: null,
+            postcode: null,
+            country: "NL",
+          },
+          pdfKey: null,
+        },
+      });
+    }
     await tx.user.delete({ where: { id: userId } });
+    return invoices.flatMap((invoice) => invoice.pdfKey ? [invoice.pdfKey] : []);
+  });
+
+  const cleanup = await Promise.allSettled(pdfKeys.map((key) => storage.delete(key)));
+  cleanup.forEach((result, index) => {
+    if (result.status === "rejected") console.error(`Anonymised invoice PDF cleanup failed: ${pdfKeys[index]}`, result.reason);
   });
 }

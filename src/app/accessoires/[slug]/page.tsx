@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { findProductBySlug } from "@/lib/catalog";
 import { formatPrice } from "@/lib/utils";
-import { mediaSrcSet } from "@/lib/media";
+import { mediaSrcSet, mediaWidthUrl } from "@/lib/media";
+import { env } from "@/lib/env";
 import { getTaxConfig } from "@/lib/tax";
 import { Gallery } from "@/components/gallery";
 import { AddProductButton } from "@/components/add-product-button";
@@ -24,7 +25,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
     openGraph: {
       title,
       type: "website",
-      images: product.images[0] ? [`/api/media/${encodeURIComponent(product.images[0].storageKey)}/w-1200.webp`] : undefined,
+      images: product.images[0] ? [`${env.siteUrl}${mediaWidthUrl(product.images[0].storageKey, 1200)}`] : undefined,
     },
   };
 }
@@ -45,7 +46,7 @@ export default async function ProductPage(props: { params: Promise<{ slug: strin
     description: product.description ?? undefined,
     sku: product.sku,
     image: product.images.length
-      ? product.images.map((i) => `/api/media/${encodeURIComponent(i.storageKey)}/w-1200.webp`)
+      ? product.images.map((i) => `${env.siteUrl}${mediaWidthUrl(i.storageKey, 1200)}`)
       : undefined,
     offers: {
       "@type": "Offer",

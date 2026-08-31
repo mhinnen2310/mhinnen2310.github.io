@@ -12,7 +12,7 @@ export const QR_MAX_BATCH_SIZE = 500;
 export class QrTagError extends Error { constructor(message: string) { super(message); this.name = "QrTagError"; } }
 
 export function qrDisplayCode(serial: number) { return `DF-${String(serial).padStart(6, "0")}`; }
-export function qrUrl(token: string) { return `${env.baseUrl.replace(/\/$/, "")}/q/${token}`; }
+export function qrUrl(token: string, baseUrl = env.publicQrBaseUrl) { return `${baseUrl.replace(/\/$/, "")}/q/${token}`; }
 export function createQrToken() { return randomBytes(32).toString("base64url"); }
 
 async function reserveCounter(tx: Tx, kind: string, increment: number, year: number) {
@@ -28,7 +28,7 @@ export async function createQrBatch(quantity: number, labelsPerPage: number, act
   const batch = await prisma.$transaction(async (tx) => {
     const serials = await reserveCounter(tx, "qr-tag", quantity, 0);
     const batchNumber = await reserveCounter(tx, "qr-batch", 1, now.getFullYear());
-    const created = await tx.qrBatch.create({ data: { batchNumber: `QR-${now.getFullYear()}-${String(batchNumber.last).padStart(4, "0")}`, firstSerialNumber: serials.first, lastSerialNumber: serials.last, quantity, labelsPerPage, createdById: actor?.id ?? null } });
+    const created = await tx.qrBatch.create({ data: { batchNumber: `QR-${now.getFullYear()}-${String(batchNumber.last).padStart(4, "0")}`, qrBaseUrl: env.publicQrBaseUrl.replace(/\/$/, ""), firstSerialNumber: serials.first, lastSerialNumber: serials.last, quantity, labelsPerPage, createdById: actor?.id ?? null } });
     const tokens = new Set<string>();
     while (tokens.size < quantity) tokens.add(createQrToken());
     await tx.qrTag.createMany({ data: [...tokens].map((secureToken, offset) => { const serialNumber = serials.first + offset; return { batchId: created.id, serialNumber, displayCode: qrDisplayCode(serialNumber), secureToken }; }) });

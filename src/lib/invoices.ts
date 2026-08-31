@@ -205,8 +205,33 @@ export async function issueInvoice(orderId: string, actorId: string | null = nul
 export async function issueCreditNote(orderId: string, amountCents: number, reason: string | null, actorId: string | null = null): Promise<string> {
   const order = await prisma.order.findUnique({ where: { id: orderId }, include: { lines: true } });
   if (!order) throw new InvoiceError("Bestelling niet gevonden.");
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > order.totalCents) {
+    throw new InvoiceError("Creditbedrag is ongeldig.");
+  }
   const { lines, customer, totals, tax } = buildSnapshots(order);
   const company = await getInvoiceCompanySnapshot();
+  const ratio = amountCents / Math.max(1, order.totalCents);
+  const subtotalCredit = Math.min(amountCents, Math.round(order.subtotalCents * ratio));
+  const deliveryCredit = Math.min(amountCents - subtotalCredit, Math.round(order.deliveryCostCents * ratio));
+  const basis = (order.taxBasis as Record<string, unknown> | null)?.basis === "excl" ? "excl" : "incl";
+  const taxCredit = basis === "excl"
+    ? amountCents - subtotalCredit - deliveryCredit
+    : Math.round(order.taxTotalCents * ratio);
+  let allocated = 0;
+  const lineBasis = Math.max(1, lines.reduce((sum, line) => sum + line.lineTotalCents, 0));
+  const creditLines = lines.map((line, index) => {
+    const share = index === lines.length - 1
+      ? subtotalCredit - allocated
+      : Math.round((subtotalCredit * line.lineTotalCents) / lineBasis);
+    allocated += share;
+    return {
+      ...line,
+      quantity: 1,
+      unitPriceCents: -share,
+      lineTotalCents: -share,
+      taxCents: -Math.round(line.taxCents * ratio),
+    };
+  });
 
   const credit = await prisma.$transaction(async (tx) => {
     const invoiceNumber = await nextInvoiceNumberInTx(tx);
@@ -217,14 +242,22 @@ export async function issueCreditNote(orderId: string, amountCents: number, reas
         status: "CREDIT_NOTE",
         customer: customer as object,
         company: company as object,
-        lines: (lines.map((l) => ({ ...l, quantity: 1, unitPriceCents: Math.round((-amountCents * l.unitPriceCents) / Math.max(1, order.totalCents)) }))) as object,
-        totals: { ...totals, totalCents: -amountCents, creditForOrderNumber: order.orderNumber } as object,
+        lines: creditLines as object,
+        totals: {
+          ...totals,
+          subtotalCents: -subtotalCredit,
+          deliveryCostCents: -deliveryCredit,
+          taxTotalCents: -taxCredit,
+          totalCents: -amountCents,
+          creditForOrderNumber: order.orderNumber,
+        } as object,
         tax: tax as object,
         notes: reason ? `Creditnote: ${reason}` : "Creditnote voor terugbetaling.",
       },
     });
   });
 
+  await ensureInvoicePdf(credit.id);
   await audit("invoice.credit_note", "Invoice", credit.id, { invoiceNumber: credit.invoiceNumber, amountCents }, null);
   return credit.invoiceNumber;
 }
@@ -330,7 +363,7 @@ async function generateInvoicePdf(invoice: {
   };
   line("Subtotaal", formatPrice(Number(totals.subtotalCents) || 0));
   line("Verzending/levering", formatPrice(Number(totals.deliveryCostCents) || 0));
-  if (Number(totals.taxTotalCents) > 0) line(`Verkoopbelasting (${basis})`, formatPrice(Number(totals.taxTotalCents)));
+  if (Number(totals.taxTotalCents) !== 0) line(`Verkoopbelasting (${basis})`, formatPrice(Number(totals.taxTotalCents)));
   doc.y += 4;
   line(isCredit ? "Terug te betalen" : "Totaal", formatPrice(isCredit ? -Number(totals.totalCents) : Number(totals.totalCents) || 0), true);
 
@@ -370,8 +403,10 @@ export async function ensureInvoicePdf(invoiceId: string): Promise<string | null
 
 export async function getInvoicePdf(invoiceId: string): Promise<{ data: Buffer; invoiceNumber: string } | null> {
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
-  if (!invoice?.pdfKey) return null;
-  const stored = await storage.get(invoice.pdfKey);
+  if (!invoice) return null;
+  const pdfKey = invoice.pdfKey ?? await ensureInvoicePdf(invoice.id);
+  if (!pdfKey) return null;
+  const stored = await storage.get(pdfKey);
   if (!stored) return null;
   return { data: stored.data, invoiceNumber: invoice.invoiceNumber };
 }

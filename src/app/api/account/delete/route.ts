@@ -28,7 +28,9 @@ export async function POST(req: Request) {
 
   await deleteAccount(user.id);
   const ip = await ipHashOf(req.headers);
-  await audit("account.deleted", "User", user.id, null, user, ip);
+  // The user row has already been removed. Record this as a system event with
+  // the deleted opaque id so the audit insert cannot violate its user FK.
+  await audit("account.deleted", "User", user.id, null, null, ip);
 
   return NextResponse.json({
     ok: true,

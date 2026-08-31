@@ -37,6 +37,10 @@ services:
         sync: false
       - key: APP_BASE_URL
         sync: false
+      - key: PUBLIC_QR_BASE_URL
+        value: https://demifietsen.nl
+      - key: ANDROID_APP_CERT_SHA256
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

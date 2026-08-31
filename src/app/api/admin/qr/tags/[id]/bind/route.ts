@@ -12,7 +12,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!bikeId) return NextResponse.json({ error: "Kies een bestaande fiets." }, { status: 400 });
     const { id } = await ctx.params; const tag = await bindQrTag(id, bikeId, actor); return NextResponse.json({ tag });
   } catch (error) {
-    if (error instanceof QrTagError || (error as { code?: string }).code === "P2002") return NextResponse.json({ error: error instanceof Error ? error.message : "Deze fiets heeft al een QR-tag." }, { status: 409 });
+    if ((error as { code?: string }).code === "P2002") return NextResponse.json({ error: "Deze fiets heeft al een QR-tag." }, { status: 409 });
+    if (error instanceof QrTagError) return NextResponse.json({ error: error.message }, { status: 409 });
     console.error("QR bind failed", error); return NextResponse.json({ error: "QR-tag kon niet worden gekoppeld." }, { status: 500 });
   }
 }

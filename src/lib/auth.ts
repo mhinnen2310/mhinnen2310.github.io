@@ -17,6 +17,7 @@ export interface SessionUser {
 export interface JwtExtras {
   id?: string;
   role?: Role;
+  sessionVersion?: number;
 }
 
 const credentialsProvider = CredentialsProvider({
@@ -37,7 +38,7 @@ const credentialsProvider = CredentialsProvider({
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user?.passwordHash) return null;
+    if (!user?.passwordHash || user.isActive === false) return null;
 
     let ok = false;
     try {
@@ -54,12 +55,13 @@ const credentialsProvider = CredentialsProvider({
       email: user.email,
       name: user.name,
       role: user.role,
+      sessionVersion: user.sessionVersion,
     };
   },
 });
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt", maxAge: 60 * 60 * 8 * 7 }, // 7 days
+  session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 7 }, // 7 days
   secret: process.env.AUTH_SECRET,
   pages: { signIn: "/inloggen" },
   providers: [credentialsProvider],
@@ -68,6 +70,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = (user as unknown as { role?: Role }).role;
+        token.sessionVersion = (user as unknown as { sessionVersion?: number }).sessionVersion ?? 0;
       }
       return token;
     },
@@ -75,6 +78,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as unknown as { id?: string }).id = token.id as string | undefined;
         (session.user as unknown as { role?: Role }).role = token.role as Role | undefined;
+        (session.user as unknown as { sessionVersion?: number }).sessionVersion = Number(token.sessionVersion ?? 0);
       }
       return session;
     },
@@ -100,9 +104,11 @@ export function getSessionUser(): Promise<SessionUser | null> {
     // Fresh read: role and verification state stay current even if the
     // JWT is older (e.g. admin promoted, e-mail verified since login).
     const fresh = await prisma.user
-      .findUnique({ where: { id: u.id as string }, select: { role: true, emailVerified: true, name: true, email: true } })
+      .findUnique({ where: { id: u.id as string }, select: { role: true, emailVerified: true, name: true, email: true, sessionVersion: true, isActive: true } })
       .catch(() => null);
     if (!fresh) return null; // account deleted since login
+    if (fresh.isActive === false) return null;
+    if (fresh.sessionVersion !== Number(u.sessionVersion ?? 0)) return null;
     return {
       id: u.id as string,
       role: fresh.role,

@@ -2,6 +2,10 @@ import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 
+// Inventory and product URLs are database-backed; generate the sitemap at
+// request time so a production build never needs a live database connection.
+export const dynamic = "force-dynamic";
+
 /**
  * Sitemap (spec 31).
  *
@@ -36,7 +40,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/nieuwsbrief", priority: 0.3, changeFreq: "monthly" as const },
     { path: "/zoeken", priority: 0.3, changeFreq: "monthly" as const },
     { path: "/privacy", priority: 0.2, changeFreq: "yearly" as const },
-    { path: "/algemene-voorwaarden", priority: 0.2, changeFreq: "yearly" as const },
+    {
+      path: "/algemene-voorwaarden",
+      priority: 0.2,
+      changeFreq: "yearly" as const,
+    },
     { path: "/retourbeleid", priority: 0.2, changeFreq: "yearly" as const },
     { path: "/cookiebeleid", priority: 0.2, changeFreq: "yearly" as const },
   ];

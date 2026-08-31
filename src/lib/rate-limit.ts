@@ -17,28 +17,28 @@ export async function rateLimit(
   windowSeconds: number,
 ): Promise<RateLimitResult> {
   const now = new Date();
-  const entry = await prisma.rateLimitEntry.upsert({
-    where: { key },
-    update: { hits: { increment: 1 }, updatedAt: now },
-    create: { key, hits: 1, windowStart: now },
-  });
-
-  // Window reset check (single reader assumption is fine: window is coarse)
-  if (now.getTime() - entry.windowStart.getTime() > windowSeconds * 1000) {
-    const reset = await prisma.rateLimitEntry.update({
+  return prisma.$transaction(async (tx) => {
+    await tx.rateLimitEntry.upsert({
       where: { key },
-      data: { hits: 1, windowStart: now, updatedAt: now },
+      update: { updatedAt: now },
+      create: { key, hits: 0, windowStart: now },
     });
-    return { allowed: true, remaining: limit - 1, retryAfterSeconds: 0 };
-  }
+    await tx.$queryRaw`SELECT "key" FROM "RateLimitEntry" WHERE "key" = ${key} FOR UPDATE`;
+    const entry = await tx.rateLimitEntry.findUniqueOrThrow({ where: { key } });
 
-  if (entry.hits > limit) {
-    const retryAfter = Math.ceil(
-      (entry.windowStart.getTime() + windowSeconds * 1000 - now.getTime()) / 1000,
-    );
-    return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, retryAfter) };
-  }
-  return { allowed: true, remaining: limit - entry.hits, retryAfterSeconds: 0 };
+    if (now.getTime() - entry.windowStart.getTime() >= windowSeconds * 1000) {
+      await tx.rateLimitEntry.update({ where: { key }, data: { hits: 1, windowStart: now, updatedAt: now } });
+      return { allowed: true, remaining: Math.max(0, limit - 1), retryAfterSeconds: 0 };
+    }
+
+    const hits = entry.hits + 1;
+    await tx.rateLimitEntry.update({ where: { key }, data: { hits, updatedAt: now } });
+    if (hits > limit) {
+      const retryAfter = Math.ceil((entry.windowStart.getTime() + windowSeconds * 1000 - now.getTime()) / 1000);
+      return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, retryAfter) };
+    }
+    return { allowed: true, remaining: limit - hits, retryAfterSeconds: 0 };
+  });
 }
 
 export async function rateLimitRequest(

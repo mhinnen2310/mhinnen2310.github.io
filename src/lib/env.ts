@@ -16,6 +16,8 @@ export const env = {
   ipHashSecret: process.env.IP_HASH_SECRET,
   siteUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
   baseUrl: process.env.APP_BASE_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  publicQrBaseUrl: process.env.PUBLIC_QR_BASE_URL ?? "https://demifietsen.nl",
+  androidAppCertSha256: process.env.ANDROID_APP_CERT_SHA256,
   paymentProvider: (process.env.PAYMENT_PROVIDER ?? "mock") as "mock" | "mollie",
   // A production deployment must never silently prefer a test key merely
   // because both values happen to exist in its environment.
@@ -48,6 +50,10 @@ function isPublicHttpsUrl(value: string): boolean {
   }
 }
 
+function hasAndroidCertificateFingerprint(value: string | undefined): boolean {
+  return (value ?? "").split(",").some((item) => /^(?:[A-Fa-f0-9]{2}:){31}[A-Fa-f0-9]{2}$/.test(item.trim()));
+}
+
 export function assertEnv() {
   if (env.isProduction && !env.isPreview) {
     const missing: string[] = [];
@@ -60,6 +66,8 @@ export function assertEnv() {
     if (!env.cronSecret) missing.push("CRON_SECRET");
     if (!isPublicHttpsUrl(env.siteUrl)) missing.push("NEXT_PUBLIC_SITE_URL (publieke https URL)");
     if (!isPublicHttpsUrl(env.baseUrl)) missing.push("APP_BASE_URL (publieke https URL)");
+    if (!isPublicHttpsUrl(env.publicQrBaseUrl)) missing.push("PUBLIC_QR_BASE_URL (permanente publieke https URL)");
+    if (!hasAndroidCertificateFingerprint(env.androidAppCertSha256)) missing.push("ANDROID_APP_CERT_SHA256 (geldige SHA-256 fingerprint)");
     if (missing.length > 0) {
       throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
     }
@@ -81,6 +89,7 @@ export function assertEnv() {
     if (!env.ipHashSecret) missing.push("IP_HASH_SECRET");
     if (!isPublicHttpsUrl(env.siteUrl)) missing.push("NEXT_PUBLIC_SITE_URL (publieke https URL)");
     if (!isPublicHttpsUrl(env.baseUrl)) missing.push("APP_BASE_URL (publieke https URL)");
+    if (!isPublicHttpsUrl(env.publicQrBaseUrl)) missing.push("PUBLIC_QR_BASE_URL (permanente publieke https URL)");
     if (env.storageDriver !== "supabase") missing.push("STORAGE_DRIVER=supabase");
     if (!env.supabaseUrl) missing.push("SUPABASE_URL");
     if (!env.supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");

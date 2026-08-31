@@ -1,6 +1,6 @@
 import type { SessionUser } from "./auth";
 import { audit } from "./audit";
-import { MAX_UPLOAD_BYTES, processImageUpload } from "./images";
+import { deleteProcessedImage, MAX_UPLOAD_BYTES, processImageUpload } from "./images";
 import { prisma } from "./prisma";
 
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif", "image/gif"]);
@@ -14,14 +14,23 @@ export async function addBikeImage(bikeId: string, image: File, actor: SessionUs
   const bike = await prisma.bike.findUnique({ where: { id: bikeId }, select: { id: true } });
   if (!bike) throw new BikeImageError("Fiets niet gevonden.");
   const processed = await processImageUpload(Buffer.from(await image.arrayBuffer()), image.type, "bikes");
-  const [imageCount, lastImage] = await Promise.all([
-    prisma.bikeImage.count({ where: { bikeId } }),
-    prisma.bikeImage.findFirst({ where: { bikeId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } }),
-  ]);
-  const created = await prisma.bikeImage.create({
-    data: { bikeId, storageKey: processed.key, width: processed.width, height: processed.height, sortOrder: (lastImage?.sortOrder ?? -1) + 1, isCover: imageCount === 0 },
-    select: { id: true, storageKey: true, width: true, height: true, isCover: true, isInternal: true },
-  });
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`bike-images:${bikeId}`}, 0))`;
+      const [imageCount, lastImage] = await Promise.all([
+        tx.bikeImage.count({ where: { bikeId } }),
+        tx.bikeImage.findFirst({ where: { bikeId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } }),
+      ]);
+      return tx.bikeImage.create({
+        data: { bikeId, storageKey: processed.key, width: processed.width, height: processed.height, sortOrder: (lastImage?.sortOrder ?? -1) + 1, isCover: imageCount === 0 },
+        select: { id: true, storageKey: true, width: true, height: true, isCover: true, isInternal: true },
+      });
+    });
+  } catch (error) {
+    await deleteProcessedImage(processed.key);
+    throw error;
+  }
   await audit("bike.image_added", "Bike", bikeId, { imageId: created.id }, actor);
   return created;
 }

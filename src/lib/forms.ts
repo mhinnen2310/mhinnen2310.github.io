@@ -1,7 +1,11 @@
 import { prisma } from "./prisma";
 import type { ServiceRequestType } from "@prisma/client";
 import { rateLimitRequest, ipHashOf } from "./rate-limit";
-import { emailAdminAppointment, emailAdminContact, emailAdminServiceRequest } from "./email";
+import {
+  emailAdminAppointment,
+  emailAdminContact,
+  emailAdminServiceRequest,
+} from "./email";
 import { processImageUpload } from "./images";
 import { getSettings } from "./settings";
 import { randomToken } from "./utils";
@@ -31,7 +35,9 @@ export class FormError extends Error {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function isEmail(v: unknown): v is string {
-  return typeof v === "string" && EMAIL_RE.test(v.trim()) && v.trim().length <= 254;
+  return (
+    typeof v === "string" && EMAIL_RE.test(v.trim()) && v.trim().length <= 254
+  );
 }
 
 function clean(v: unknown, max: number): string {
@@ -51,11 +57,24 @@ function optional(v: unknown, max: number): string | null {
   return s;
 }
 
-async function guard(headers: Headers, email: string, purpose: "form" | "newsletter", limit = 5, windowSeconds = 600) {
+async function guard(
+  headers: Headers,
+  email: string,
+  purpose: "form" | "newsletter",
+  limit = 5,
+  windowSeconds = 600,
+) {
   const ip = await ipHashOf(headers);
-  const rl = await rateLimitRequest(purpose, [email, ip ?? "no-ip"], limit, windowSeconds);
+  const rl = await rateLimitRequest(
+    purpose,
+    [email, ip ?? "no-ip"],
+    limit,
+    windowSeconds,
+  );
   if (!rl.allowed) {
-    throw new FormError("Je hebt te veel aanvragen verzonden. Probeer het over enkele minuten opnieuw.");
+    throw new FormError(
+      "Je hebt te veel aanvragen verzonden. Probeer het over enkele minuten opnieuw.",
+    );
   }
 }
 
@@ -72,21 +91,39 @@ export interface AppointmentInput {
   message?: unknown;
 }
 
-export async function createAppointment(headers: Headers, input: AppointmentInput): Promise<{ id: string; code: string }> {
+export async function createAppointment(
+  headers: Headers,
+  input: AppointmentInput,
+): Promise<{ id: string; code: string }> {
   const name = clean(input.name, 120);
-  if (!isEmail(input.email)) throw new FormError("Vul een geldig e-mailadres in.", "email");
+  if (!isEmail(input.email))
+    throw new FormError("Vul een geldig e-mailadres in.", "email");
   const email = input.email.trim().toLowerCase();
   const phone = optional(input.phone, 30);
-  if (typeof input.preferredDate !== "string" || typeof input.timeBlock !== "string") throw new FormError("Kies een beschikbaar tijdslot.");
+  if (
+    typeof input.preferredDate !== "string" ||
+    typeof input.timeBlock !== "string"
+  )
+    throw new FormError("Kies een beschikbaar tijdslot.");
   let preferredDate: Date;
-  try { preferredDate = await assertAppointmentSlotAvailable(input.preferredDate, input.timeBlock); }
-  catch (cause) { throw new FormError(cause instanceof Error ? cause.message : "Kies een beschikbaar tijdslot."); }
+  try {
+    preferredDate = await assertAppointmentSlotAvailable(
+      input.preferredDate,
+      input.timeBlock,
+    );
+  } catch (cause) {
+    throw new FormError(
+      cause instanceof Error ? cause.message : "Kies een beschikbaar tijdslot.",
+    );
+  }
   const timeBlock = input.timeBlock;
   const message = optional(input.message, 2000);
 
   let bikeId: string | null = null;
   if (typeof input.bikeId === "string" && input.bikeId.trim()) {
-    const bike = await prisma.bike.findUnique({ where: { id: input.bikeId.trim() } });
+    const bike = await prisma.bike.findUnique({
+      where: { id: input.bikeId.trim() },
+    });
     if (!bike) throw new FormError("De fiets is niet gevonden.");
     bikeId = bike.id;
   }
@@ -94,28 +131,53 @@ export async function createAppointment(headers: Headers, input: AppointmentInpu
   await guard(headers, email, "form");
 
   const code = `AF-${randomToken(4).toUpperCase()}`;
-  const appointment = await prisma.appointment.create({
-    data: {
-      customerName: name,
-      customerEmail: email,
-      customerPhone: phone,
-      bikeId,
-      locationId: typeof input.locationId === "string" ? input.locationId.slice(0, 60) : null,
-      preferredDate,
-      timeBlock,
-      message,
-      status: "NEW",
-    },
+  const appointment = await prisma.$transaction(async (tx) => {
+    const slotKey = `${preferredDate.toISOString()}|${timeBlock}`;
+    // PostgreSQL transaction lock serialises claims for this exact slot across
+    // all app instances without preventing a cancelled slot from being reused.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${slotKey}, 0))`;
+    const occupied = await tx.appointment.findFirst({
+      where: {
+        preferredDate,
+        timeBlock,
+        status: { in: ["NEW", "CONTACTED", "CONFIRMED"] },
+      },
+      select: { id: true },
+    });
+    if (occupied)
+      throw new FormError(
+        "Dit tijdslot is niet meer beschikbaar. Kies een ander tijdstip.",
+      );
+    return tx.appointment.create({
+      data: {
+        customerName: name,
+        customerEmail: email,
+        customerPhone: phone,
+        bikeId,
+        locationId:
+          typeof input.locationId === "string"
+            ? input.locationId.slice(0, 60)
+            : null,
+        preferredDate,
+        timeBlock,
+        message,
+        status: "NEW",
+      },
+    });
   });
 
-  const bike = bikeId ? await prisma.bike.findUnique({ where: { id: bikeId } }) : null;
+  const bike = bikeId
+    ? await prisma.bike.findUnique({ where: { id: bikeId } })
+    : null;
   await emailAdminAppointment({
     name,
     email,
     phone,
     date: preferredDate.toISOString(),
     timeBlock,
-    bikeTitle: bike ? `${bike.brand} ${bike.model} (${bike.inventoryCode})` : null,
+    bikeTitle: bike
+      ? `${bike.brand} ${bike.model} (${bike.inventoryCode})`
+      : null,
     message,
   }).catch((err) => console.error("emailAdminAppointment failed", err));
 
@@ -132,9 +194,13 @@ export interface ContactInput {
   message: unknown;
 }
 
-export async function createContactMessage(headers: Headers, input: ContactInput): Promise<{ id: string }> {
+export async function createContactMessage(
+  headers: Headers,
+  input: ContactInput,
+): Promise<{ id: string }> {
   const name = clean(input.name, 120);
-  if (!isEmail(input.email)) throw new FormError("Vul een geldig e-mailadres in.", "email");
+  if (!isEmail(input.email))
+    throw new FormError("Vul een geldig e-mailadres in.", "email");
   const email = input.email.trim().toLowerCase();
   const phone = optional(input.phone, 30);
   const subject = optional(input.subject, 140);
@@ -147,19 +213,26 @@ export async function createContactMessage(headers: Headers, input: ContactInput
     data: { name, email, phone, subject, message, status: "NEW", ipHash: ip },
   });
 
-  await emailAdminContact({ name, email, phone, subject, message }).catch((err) =>
-    console.error("emailAdminContact failed", err),
+  await emailAdminContact({ name, email, phone, subject, message }).catch(
+    (err) => console.error("emailAdminContact failed", err),
   );
   return { id: msg.id };
 }
 
 // --- Service / return / warranty ----------------------------------------------
 
-const SERVICE_TYPES: ServiceRequestType[] = ["RETURN", "WARRANTY", "SERVICE", "DAMAGE", "OTHER"];
+const SERVICE_TYPES: ServiceRequestType[] = [
+  "RETURN",
+  "WARRANTY",
+  "SERVICE",
+  "DAMAGE",
+  "OTHER",
+];
 
 export interface ServiceRequestInput {
   type: unknown;
   orderNumber?: unknown;
+  bikeId?: unknown;
   name: unknown;
   email: unknown;
   phone?: unknown;
@@ -172,17 +245,25 @@ export async function createServiceRequest(
   headers: Headers,
   input: ServiceRequestInput,
 ): Promise<{ id: string }> {
-  if (typeof input.type !== "string" || !SERVICE_TYPES.includes(input.type as ServiceRequestType)) {
+  if (
+    typeof input.type !== "string" ||
+    !SERVICE_TYPES.includes(input.type as ServiceRequestType)
+  ) {
     throw new FormError("Kies een type verzoek.");
   }
   const type = input.type as ServiceRequestType;
   const name = clean(input.name, 120);
-  if (!isEmail(input.email)) throw new FormError("Vul een geldig e-mailadres in.", "email");
+  if (!isEmail(input.email))
+    throw new FormError("Vul een geldig e-mailadres in.", "email");
   const email = input.email.trim().toLowerCase();
   const phone = optional(input.phone, 30);
   const orderNumber =
     typeof input.orderNumber === "string" && input.orderNumber.trim()
       ? input.orderNumber.trim().toUpperCase()
+      : null;
+  const bikeId =
+    typeof input.bikeId === "string" && input.bikeId.trim()
+      ? input.bikeId.trim()
       : null;
   const description = clean(input.description, 6000);
 
@@ -191,9 +272,21 @@ export async function createServiceRequest(
   let orderEmail: string | null = null;
   if (orderNumber) {
     const order = await prisma.order.findUnique({ where: { orderNumber } });
-    if (!order) throw new FormError("We kennen dit bestelnummer niet. Controleer de speling.", "orderNumber");
+    if (!order)
+      throw new FormError(
+        "We kennen dit bestelnummer niet. Controleer de speling.",
+        "orderNumber",
+      );
     orderId = order.id;
     orderEmail = order.customerEmail;
+  }
+
+  if (bikeId) {
+    const bike = await prisma.bike.findUnique({
+      where: { id: bikeId },
+      select: { id: true },
+    });
+    if (!bike) throw new FormError("Deze fiets is niet gevonden.");
   }
 
   await guard(headers, email, "form");
@@ -207,7 +300,11 @@ export async function createServiceRequest(
       throw new FormError("Een foto is te groot (max. 10 MB per foto).");
     }
     const buffer = Buffer.from(await file.arrayBuffer());
-    const processed = await processImageUpload(buffer, file.type || "image/jpeg", "service");
+    const processed = await processImageUpload(
+      buffer,
+      file.type || "image/jpeg",
+      "service",
+    );
     photoKeys.push(processed.key);
   }
 
@@ -215,6 +312,7 @@ export async function createServiceRequest(
     data: {
       type,
       orderNumber,
+      bikeId,
       customerName: name,
       customerEmail: email,
       customerPhone: phone,
@@ -235,7 +333,10 @@ export async function createServiceRequest(
   // If the e-mail matches the order owner we can link the request to the
   // order for the admin (best effort, never blocks the submission).
   if (orderId && email === orderEmail) {
-    await prisma.serviceRequest.update({ where: { id: req.id }, data: { internalNotes: "E-mail komt overeen met besteller." } });
+    await prisma.serviceRequest.update({
+      where: { id: req.id },
+      data: { internalNotes: "E-mail komt overeen met besteller." },
+    });
   }
 
   return { id: req.id };
@@ -243,34 +344,56 @@ export async function createServiceRequest(
 
 // --- Newsletter ----------------------------------------------------------------
 
-export async function subscribeNewsletter(headers: Headers, email: unknown, source: string | null = null): Promise<{ created: boolean }> {
-  if (!isEmail(email)) throw new FormError("Vul een geldig e-mailadres in.", "email");
+export async function subscribeNewsletter(
+  headers: Headers,
+  email: unknown,
+  source: string | null = null,
+): Promise<{ created: boolean }> {
+  if (!isEmail(email))
+    throw new FormError("Vul een geldig e-mailadres in.", "email");
   const normalized = email.trim().toLowerCase();
   await guard(headers, normalized, "newsletter", 5, 600);
 
   const s = await getSettings();
-  if (!s.newsletterEnabled) throw new FormError("De nieuwsbrief is momenteel niet open.");
+  if (!s.newsletterEnabled)
+    throw new FormError("De nieuwsbrief is momenteel niet open.");
 
-  const existing = await prisma.newsletterSubscriber.findUnique({ where: { email: normalized } });
+  const existing = await prisma.newsletterSubscriber.findUnique({
+    where: { email: normalized },
+  });
   if (existing) {
     if (!existing.active) {
       await prisma.newsletterSubscriber.update({
         where: { id: existing.id },
-        data: { active: true, consentedAt: new Date(), consentSource: source ?? existing.consentSource },
+        data: {
+          active: true,
+          consentedAt: new Date(),
+          consentSource: source ?? existing.consentSource,
+        },
       });
     }
     return { created: false };
   }
   await prisma.newsletterSubscriber.create({
-    data: { email: normalized, consentSource: source, consentedAt: new Date(), active: true },
+    data: {
+      email: normalized,
+      consentSource: source,
+      consentedAt: new Date(),
+      active: true,
+    },
   });
   return { created: true };
 }
 
 export async function unsubscribeByToken(token: string): Promise<boolean> {
   if (typeof token !== "string" || token.length < 10) return false;
-  const sub = await prisma.newsletterSubscriber.findUnique({ where: { unsubscribeToken: token } });
+  const sub = await prisma.newsletterSubscriber.findUnique({
+    where: { unsubscribeToken: token },
+  });
   if (!sub) return false;
-  await prisma.newsletterSubscriber.update({ where: { id: sub.id }, data: { active: false } });
+  await prisma.newsletterSubscriber.update({
+    where: { id: sub.id },
+    data: { active: false },
+  });
   return true;
 }

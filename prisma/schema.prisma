@@ -154,25 +154,29 @@ enum AuditActorType {
 // ---------------------------------------------------------------------------
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String?
-  name          String?
-  role          Role      @default(CUSTOMER)
-  emailVerified DateTime?
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String?
+  sessionVersion Int       @default(0)
+  // Staff can deactivate accounts without deleting audit/order history.
+  isActive       Boolean   @default(true)
+  name           String?
+  role           Role      @default(CUSTOMER)
+  emailVerified  DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  addresses  UserAddress[]
-  orders     Order[]
-  authTokens AuthToken[]
-  auditLogs  AuditLog[]
-  completedServiceTasks ServiceTask[] @relation("ServiceTaskCompletedBy")
-  createdQrBatches QrBatch[] @relation("QrBatchCreatedBy")
-  boundQrTags QrTag[] @relation("QrTagBoundBy")
-  confirmedPayments Payment[] @relation("PaymentConfirmedBy")
-  mobileSessions MobileSession[]
+  addresses             UserAddress[]
+  orders                Order[]
+  authTokens            AuthToken[]
+  auditLogs             AuditLog[]
+  completedServiceTasks ServiceTask[]          @relation("ServiceTaskCompletedBy")
+  createdQrBatches      QrBatch[]              @relation("QrBatchCreatedBy")
+  boundQrTags           QrTag[]                @relation("QrTagBoundBy")
+  confirmedPayments     Payment[]              @relation("PaymentConfirmedBy")
+  mobileSessions        MobileSession[]
+  settingsRevisions     SiteSettingsRevision[] @relation("SiteSettingsRevisionChangedBy")
 
   @@index([role])
 }
@@ -210,18 +214,18 @@ model AuthToken {
 // Separate from browser-based NextAuth sessions. Only hashes of opaque mobile
 // secrets are persisted, allowing remote device logout and refresh rotation.
 model MobileSession {
-  id                 String   @id @default(cuid())
-  userId             String
-  deviceIdHash       String
-  accessTokenHash    String   @unique
-  refreshTokenHash   String   @unique
-  accessExpiresAt    DateTime
-  refreshExpiresAt   DateTime
-  lastUsedAt         DateTime @default(now())
-  revokedAt          DateTime?
-  revokedReason      String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id               String    @id @default(cuid())
+  userId           String
+  deviceIdHash     String
+  accessTokenHash  String    @unique
+  refreshTokenHash String    @unique
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  lastUsedAt       DateTime  @default(now())
+  revokedAt        DateTime?
+  revokedReason    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -266,6 +270,27 @@ model SiteSettings {
   tax               Json? // {bikeRate, accessoryRate, basis, requiresReview}
   newsletterEnabled Boolean  @default(true)
   updatedAt         DateTime @updatedAt
+
+  revisions SiteSettingsRevision[]
+}
+
+// Immutable before-change snapshots for live website edits. A revision is
+// intentionally tied to the singleton settings row so restoring a version
+// remains auditable and cannot target another site.
+model SiteSettingsRevision {
+  id          String   @id @default(cuid())
+  settingsId  Int
+  version     Int
+  snapshot    Json
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  settings  SiteSettings @relation(fields: [settingsId], references: [id], onDelete: Cascade)
+  changedBy User?        @relation("SiteSettingsRevisionChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@unique([settingsId, version])
+  @@index([settingsId, createdAt])
+  @@index([changedById])
 }
 
 model LegalPage {
@@ -290,9 +315,9 @@ model UrlRedirect {
 // ---------------------------------------------------------------------------
 
 model Bike {
-  id            String @id @default(cuid())
-  inventoryCode String @unique // "2455", "T5", ...
-  slug          String @unique
+  id            String  @id @default(cuid())
+  inventoryCode String  @unique // "2455", "T5", ...
+  slug          String  @unique
   title         String
   brand         String
   model         String
@@ -337,7 +362,7 @@ model Bike {
   batteryTestDate       DateTime?
   batteryTestMethod     String?
   batteryCycleCount     Int?
-  batteryLabelPhotoKey  String?   // PRIVATE
+  batteryLabelPhotoKey  String? // PRIVATE
   batteryCondition      String?
   batteryReconditioned  Boolean?
   batteryRevisionDate   DateTime?
@@ -439,52 +464,52 @@ model BikeImage {
 
 // Workshop line items (per-bike service history)
 model ServiceTask {
-  id            String    @id @default(cuid())
-  bikeId        String
+  id               String            @id @default(cuid())
+  bikeId           String
   // Canonical key for the one-per-bike inspection checklist; null for normal work.
-  checklistKey  String?
+  checklistKey     String?
   inspectionResult InspectionResult?
-  description   String
-  partName      String?
-  partCostCents Int?
-  quantity      Int       @default(1)
-  labourMinutes Int?
-  labourCostCents Int?
-  photoKeys     String[]  @default([])
-  doneDate      DateTime?
-  completedById String?
+  description      String
+  partName         String?
+  partCostCents    Int?
+  quantity         Int               @default(1)
+  labourMinutes    Int?
+  labourCostCents  Int?
+  photoKeys        String[]          @default([])
+  doneDate         DateTime?
+  completedById    String?
   // Tracks whether this task is currently included in Bike cost totals.
-  costAppliedAt DateTime?
-  internalNotes String?
-  completed     Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  costAppliedAt    DateTime?
+  internalNotes    String?
+  completed        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
-  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  bike        Bike  @relation(fields: [bikeId], references: [id], onDelete: Cascade)
   completedBy User? @relation("ServiceTaskCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
 
+  @@unique([bikeId, checklistKey])
   @@index([bikeId, completed])
   @@index([bikeId, checklistKey])
   @@index([completedById])
-  @@unique([bikeId, checklistKey])
 }
 
 // Internal intake control. Commercial source/date/price stay canonical on
 // Bike; this record stores only the operational checks around them.
 model BikeIntake {
-  id                     String   @id @default(cuid())
-  bikeId                 String   @unique
-  frameSerialPresent     Boolean  @default(false)
-  keysPresent            Boolean  @default(false)
-  chargerPresent         Boolean  @default(false)
-  batteryPresent         Boolean  @default(false)
-  defectsAssessed        Boolean  @default(false)
-  knownDefects           String?
-  theftCheckCompleted    Boolean  @default(false)
-  theftCheckDate         DateTime?
-  theftCheckResult       String?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  bikeId              String    @unique
+  frameSerialPresent  Boolean   @default(false)
+  keysPresent         Boolean   @default(false)
+  chargerPresent      Boolean   @default(false)
+  batteryPresent      Boolean   @default(false)
+  defectsAssessed     Boolean   @default(false)
+  knownDefects        String?
+  theftCheckCompleted Boolean   @default(false)
+  theftCheckDate      DateTime?
+  theftCheckResult    String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
 
@@ -496,6 +521,7 @@ model BikeIntake {
 model QrBatch {
   id                String   @id @default(cuid())
   batchNumber       String   @unique // QR-2026-0001
+  qrBaseUrl         String   @default("https://demifietsen.nl")
   firstSerialNumber Int
   lastSerialNumber  Int
   quantity          Int
@@ -510,19 +536,19 @@ model QrBatch {
 }
 
 model QrTag {
-  id          String      @id @default(cuid())
-  serialNumber Int        @unique
-  displayCode String      @unique // DF-000001; never reused
-  secureToken String      @unique
-  status      QrTagStatus @default(UNUSED)
-  batchId     String
-  bikeId      String?     @unique
-  boundAt     DateTime?
-  boundById   String?
-  retiredAt   DateTime?
+  id            String      @id @default(cuid())
+  serialNumber  Int         @unique
+  displayCode   String      @unique // DF-000001; never reused
+  secureToken   String      @unique
+  status        QrTagStatus @default(UNUSED)
+  batchId       String
+  bikeId        String?     @unique
+  boundAt       DateTime?
+  boundById     String?
+  retiredAt     DateTime?
   retiredReason String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   batch   QrBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
   bike    Bike?   @relation(fields: [bikeId], references: [id], onDelete: Restrict)
@@ -668,6 +694,7 @@ model Order {
   discountCents Int    @default(0)
   taxTotalCents Int    @default(0)
   totalCents    Int
+  refundedCents Int    @default(0)
   currency      String @default("EUR")
 
   taxBasis      Json // per-line tax treatment snapshot (rates, basis)
@@ -721,27 +748,27 @@ model OrderLine {
 }
 
 model Payment {
-  id                String        @id @default(cuid())
-  orderId           String
-  provider          String // mollie | sumup | mock | manual
-  method            PaymentMethod @default(MOLLIE)
-  providerPaymentId String?       @unique
-  amountCents       Int
-  currency          String        @default("EUR")
-  status            String // provider status (raw)
-  description       String?
-  metadata          Json?
-  paymentUrl        String?
-  capturedAt        DateTime?
-  confirmedAt       DateTime?
-  confirmedById     String?
-  cashReceivedCents Int?
+  id                  String        @id @default(cuid())
+  orderId             String
+  provider            String // mollie | sumup | mock | manual
+  method              PaymentMethod @default(MOLLIE)
+  providerPaymentId   String?       @unique
+  amountCents         Int
+  currency            String        @default("EUR")
+  status              String // provider status (raw)
+  description         String?
+  metadata            Json?
+  paymentUrl          String?
+  capturedAt          DateTime?
+  confirmedAt         DateTime?
+  confirmedById       String?
+  cashReceivedCents   Int?
   changeReturnedCents Int?
-  refundedAt        DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  refundedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order       Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   confirmedBy User? @relation("PaymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
 
   @@index([orderId])

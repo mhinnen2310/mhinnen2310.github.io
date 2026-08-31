@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { mediaSrcSet } from "@/lib/media";
+import { mediaSrcSet, mediaWidthUrl } from "@/lib/media";
 import { cn } from "@/lib/utils";
 
 export interface GalleryImage {
@@ -89,7 +89,7 @@ export function Gallery({ images, title }: { images: GalleryImage[]; title: stri
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`/api/media/${encodeURIComponent(img.key)}/w-256.webp`}
+                src={mediaWidthUrl(img.key, 256)}
                 alt={img.alt || `${title} — miniatuur ${i + 1}`}
                 loading="lazy"
                 className="aspect-square w-full object-cover"
@@ -134,7 +134,7 @@ export function Gallery({ images, title }: { images: GalleryImage[]; title: stri
             <div className="max-h-full min-w-0 flex-1">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`/api/media/${encodeURIComponent(current.key)}/w-1600.webp`}
+                src={mediaWidthUrl(current.key, 1600)}
                 alt={current.alt || `${title} — foto ${index + 1}`}
                 className="mx-auto max-h-[78vh] w-auto max-w-full object-contain"
               />

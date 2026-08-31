@@ -10,9 +10,14 @@ const ADMIN_LINKS = [
   { href: "/admin/qr-labels", label: "QR-labels", short: "QR" },
   { href: "/admin/accessoires", label: "Accessoires", short: "A" },
   { href: "/admin/bestellingen", label: "Bestellingen", short: "B" },
+  { href: "/admin/reserveringen", label: "Reserveringen", short: "R" },
+  { href: "/admin/actie-vereist", label: "Actie vereist", short: "!" },
+  { href: "/admin/betalingen-controleren", label: "Betaalreview", short: "€" },
   { href: "/admin/afspraken", label: "Afspraken", short: "P" },
   { href: "/admin/service", label: "Service", short: "S" },
   { href: "/admin/berichten", label: "Berichten", short: "M" },
+  { href: "/admin/klanten", label: "Klantdossiers", short: "K" },
+  { href: "/admin/gebruikers", label: "Gebruikers & rollen", short: "U" },
   { href: "/admin/instellingen", label: "Instellingen", short: "⚙" },
 ] as const;
 

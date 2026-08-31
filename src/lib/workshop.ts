@@ -1,4 +1,4 @@
-import type { InspectionResult, Prisma } from "@prisma/client";
+import type { InspectionResult, Prisma, ServiceTask } from "@prisma/client";
 import type { SessionUser } from "./auth";
 import { audit } from "./audit";
 import { prisma } from "./prisma";
@@ -162,16 +162,18 @@ export async function addWorkshopTask(bikeId: string, input: WorkshopTaskInput, 
       internalNotes: input.internalNotes ?? null, completed: completes, doneDate: completes ? (input.doneDate ?? new Date()) : null,
       completedById: completes ? (actor?.id ?? null) : null,
     };
-    const task = input.checklistKey
-      ? await tx.serviceTask.update({
-        where: { bikeId_checklistKey: { bikeId, checklistKey: input.checklistKey } },
-        data: taskData,
-      })
-      : await tx.serviceTask.create({
-      data: {
-        bikeId, ...taskData,
-      },
-    });
+    let task: ServiceTask;
+    if (input.checklistKey) {
+      const where = { bikeId_checklistKey: { bikeId, checklistKey: input.checklistKey } };
+      const existing = await tx.serviceTask.findUniqueOrThrow({ where });
+      // Reconcile the exact values that were previously booked before
+      // overwriting a completed checklist row. The new values are applied
+      // again below when this update keeps the task completed.
+      if (existing.costAppliedAt) await reverseTaskCostsTx(tx, bikeId, existing);
+      task = await tx.serviceTask.update({ where, data: taskData });
+    } else {
+      task = await tx.serviceTask.create({ data: { bikeId, ...taskData } });
+    }
     if (completes) await applyTaskCostsTx(tx, bikeId, task);
     return task;
   });
@@ -196,4 +198,38 @@ export async function completeWorkshopTask(bikeId: string, taskId: string, compl
     else await reverseTaskCostsTx(tx, bikeId, task);
   });
   await audit("bike.service_task_status_changed", "Bike", bikeId, { taskId, completed, inspectionResult: inspectionResult ?? null }, actor);
+}
+
+/** Correct an ordinary workshop row while reconciling every previously booked cost. */
+export async function editWorkshopTask(bikeId: string, taskId: string, input: WorkshopTaskInput, actor: SessionUser | null) {
+  const quantity = input.quantity ?? 1;
+  const completed = input.completed === true || input.inspectionResult != null;
+  const task = await prisma.$transaction(async (tx) => {
+    const existing = await tx.serviceTask.findFirst({ where: { id: taskId, bikeId } });
+    if (!existing) throw new WorkshopError("Werkplaatsactiviteit niet gevonden.");
+    if (existing.checklistKey) throw new WorkshopError("Een inspectiepunt wordt via de checklist bijgewerkt.");
+    if (existing.costAppliedAt) await reverseTaskCostsTx(tx, bikeId, existing);
+    const updated = await tx.serviceTask.update({ where: { id: existing.id }, data: {
+      description: input.description, partName: input.partName ?? null, partCostCents: input.partCostCents ?? null, quantity,
+      labourMinutes: input.labourMinutes ?? null, labourCostCents: input.labourCostCents ?? null, internalNotes: input.internalNotes ?? null,
+      completed, inspectionResult: input.inspectionResult ?? null, doneDate: completed ? (input.doneDate ?? new Date()) : null,
+      completedById: completed ? (actor?.id ?? null) : null,
+    } });
+    if (completed) await applyTaskCostsTx(tx, bikeId, updated);
+    return updated;
+  });
+  await audit("bike.service_task_edited", "Bike", bikeId, { taskId }, actor);
+  return task;
+}
+
+/** Checklist rows are part of the inspection template; ad-hoc work may be removed. */
+export async function deleteWorkshopTask(bikeId: string, taskId: string, actor: SessionUser | null) {
+  await prisma.$transaction(async (tx) => {
+    const task = await tx.serviceTask.findFirst({ where: { id: taskId, bikeId } });
+    if (!task) throw new WorkshopError("Werkplaatsactiviteit niet gevonden.");
+    if (task.checklistKey) throw new WorkshopError("Een inspectiepunt kan niet worden verwijderd; heropen of beoordeel het via de checklist.");
+    if (task.costAppliedAt) await reverseTaskCostsTx(tx, bikeId, task);
+    await tx.serviceTask.delete({ where: { id: task.id } });
+  });
+  await audit("bike.service_task_deleted", "Bike", bikeId, { taskId }, actor);
 }
