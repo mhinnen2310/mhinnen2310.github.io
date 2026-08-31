@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -422,7 +423,10 @@ private fun routeForNotice(notice: JSONObject): String = when (notice.optString(
 }
 
 @Composable private fun BottomMenu(modifier: Modifier = Modifier, expanded: Boolean, onExpandedChange: (Boolean) -> Unit, onOpen: (String) -> Unit, onLogout: () -> Unit) {
-  Box(modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+  // Keep the menu above Android's gesture/3-button navigation bar. The app
+  // uses edge-to-edge rendering on newer Android versions, so positioning the
+  // button at the raw bottom edge would otherwise hide its lower corners.
+  Box(modifier.navigationBarsPadding().fillMaxWidth().background(MaterialTheme.colorScheme.background).padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
     Button(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
       Text(if (expanded) "Menu sluiten" else "Menu", style = MaterialTheme.typography.titleMedium)
       Spacer(Modifier.width(8.dp)); Text(if (expanded) "⌃" else "⌄", style = MaterialTheme.typography.titleLarge)
