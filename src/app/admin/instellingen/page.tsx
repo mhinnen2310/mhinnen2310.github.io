@@ -2,9 +2,11 @@ import { AdminSettingsForm } from "@/components/admin-settings-form";
 import { getSettings } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 import { AdminSettingsRevisions } from "@/components/admin-settings-revisions";
+import { AdminUiModeSwitch } from "@/components/admin-ui-mode-switch";
+import { getUiMode } from "@/lib/ui-mode";
 
 export default async function AdminSettingsPage() {
-  const [settings, legalPages, revisions] = await Promise.all([
+  const [settings, legalPages, revisions, uiMode] = await Promise.all([
     getSettings(),
     prisma.legalPage.findMany({
       orderBy: { slug: "asc" },
@@ -26,6 +28,7 @@ export default async function AdminSettingsPage() {
         changedBy: { select: { name: true, email: true } },
       },
     }),
+    getUiMode(),
   ]);
   return (
     <div>
@@ -45,6 +48,7 @@ export default async function AdminSettingsPage() {
           createdAt: revision.createdAt.toISOString(),
         }))}
       />
+      <AdminUiModeSwitch mode={uiMode} />
       <section className="mt-6 rounded-xl border border-line bg-card p-5">
         <h3 className="font-semibold text-ink">Juridische pagina&apos;s</h3>
         <p className="mt-1 text-sm text-ink-soft">
